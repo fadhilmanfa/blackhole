@@ -7,7 +7,7 @@ namespace DynamicWin.UI.UIElements
 {
     public class IslandObject : UIObject
     {
-        public float topOffset = 15f;
+        public float topOffset = -2.5f;
 
         public SecondOrder scaleSecondOrder;
 
@@ -17,9 +17,6 @@ namespace DynamicWin.UI.UIElements
         public bool hidden = false;
         
         public Vec2 currSize;
-
-        public enum IslandMode { Island, Notch };
-        public IslandMode mode = Settings.IslandMode;
 
         float dropShadowStrength = 0f;
         float dropShadowSize = 0f;
@@ -76,10 +73,6 @@ namespace DynamicWin.UI.UIElements
 
             MainForm.Instance.Opacity = hidden ? 0.85f : 1f;
 
-            mode = Settings.IslandMode;
-
-            topOffset = Mathf.Lerp(topOffset, (mode == IslandMode.Island) ? 7.5f : -2.5f, 15f * deltaTime);
-
             dropShadowStrength = Mathf.Lerp(dropShadowStrength, IsHovering ? 0.75f : 0.25f, 10f * deltaTime);
             dropShadowSize = Mathf.Lerp(dropShadowSize, IsHovering ? 35f : 7.5f, 10f * deltaTime);
 
@@ -104,11 +97,11 @@ namespace DynamicWin.UI.UIElements
             paint2.IsStroke = true;
             paint2.StrokeWidth = 2.5f;
 
-            if (mode == IslandMode.Notch && !hidden)
+            if (!hidden)
             {
-                // Notch mode uses one continuous silhouette: square corners
-                // at the screen edge and a fully rounded bottom, so the sides
-                // flow into the pill without a visible seam.
+                // One continuous silhouette: square corners at the screen edge
+                // and a fully rounded bottom, so the sides flow into the pill
+                // without a visible seam.
                 var notchRect = GetNotchRect();
 
                 canvas.DrawRoundRect(notchRect, paint2);

@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Input;
-using static DynamicWin.UI.UIElements.IslandObject;
 
 namespace DynamicWin.UI.Menu.Menus
 {
@@ -116,22 +115,14 @@ namespace DynamicWin.UI.Menu.Menus
 
             AddSectionHeader(objects, island, "General", 0f);
 
-            AddLabelPair(objects, island, "Island Mode", "Selected Monitor", 12f, 0f, secondColumn);
-
-            var islandModes = new string[] { "Island", "Notch" };
-            var islandMode = new MultiSelectionButton(island, islandModes, Vec2.zero, new Vec2(columnWidth, ControlHeight), UIAlignment.TopLeft, 2);
-            islandMode.Anchor = Vec2.zero;
-            islandMode.SelectedIndex = (Settings.IslandMode == IslandObject.IslandMode.Island) ? 0 : 1;
-            islandMode.onClick += (index) =>
-            {
-                Settings.IslandMode = (index == 0) ? IslandObject.IslandMode.Island : IslandObject.IslandMode.Notch;
-            };
+            AddLabelRow(objects, island, "Selected Monitor", 12f);
 
             var selectedMonitors = new string[MainForm.GetMonitorCount()];
             for (int i = 0; i < selectedMonitors.Length; i++)
                 selectedMonitors[i] = (i == 0) ? "Primary" : "Monitor " + i;
 
-            var selectedMonitor = new MultiSelectionButton(island, selectedMonitors, Vec2.zero, new Vec2(columnWidth, ControlHeight), UIAlignment.TopLeft, 2);
+            int monitorColumns = Math.Max(1, Math.Min(2, selectedMonitors.Length));
+            var selectedMonitor = new MultiSelectionButton(island, selectedMonitors, Vec2.zero, new Vec2(contentWidth, ControlHeight), UIAlignment.TopLeft, monitorColumns);
             selectedMonitor.Anchor = Vec2.zero;
             selectedMonitor.SelectedIndex = Math.Clamp(Settings.ScreenIndex, 0, MainForm.GetMonitorCount() - 1);
             selectedMonitor.onClick += (index) =>
@@ -140,9 +131,7 @@ namespace DynamicWin.UI.Menu.Menus
                 MainForm.Instance.SetMonitor(Settings.ScreenIndex);
             };
 
-            AddRow(objects, Math.Max(islandMode.Size.Y, selectedMonitor.Size.Y), 6f,
-                new SettingsRowItem(islandMode, 0f, 0f),
-                new SettingsRowItem(selectedMonitor, secondColumn, 0f));
+            AddRow(objects, selectedMonitor.Size.Y, 6f, new SettingsRowItem(selectedMonitor, 0f, 0f));
 
             AddLabelRow(objects, island, "Themes", 14f);
 
@@ -290,16 +279,6 @@ namespace DynamicWin.UI.Menu.Menus
             AddRow(objects, FieldLabelHeight, gapBefore, new SettingsRowItem(label, 0f, InkOffset(label, FieldLabelHeight)));
         }
 
-        void AddLabelPair(List<UIObject> objects, IslandObject island, string left, string right, float gapBefore, float leftX, float rightX)
-        {
-            var leftLabel = CreateText(island, left, 12f, Theme.TextSecond, Res.InterRegular);
-            var rightLabel = CreateText(island, right, 12f, Theme.TextSecond, Res.InterRegular);
-
-            AddRow(objects, FieldLabelHeight, gapBefore,
-                new SettingsRowItem(leftLabel, leftX, InkOffset(leftLabel, FieldLabelHeight)),
-                new SettingsRowItem(rightLabel, rightX, InkOffset(rightLabel, FieldLabelHeight)));
-        }
-
         void AddTextRow(List<UIObject> objects, IslandObject island, string text, float gapBefore)
         {
             var label = CreateText(island, text, 12f, Theme.TextThird, Res.InterRegular);
@@ -434,10 +413,7 @@ namespace DynamicWin.UI.Menu.Menus
 
         public override Col IslandBorderColor()
         {
-            IslandMode mode = Settings.IslandMode;
-
-            if (mode == IslandMode.Island) return new Col(0.5f, 0.5f, 0.5f);
-            else return new Col(0, 0, 0, 0);
+            return new Col(0, 0, 0, 0);
         }
 
         public override void OnDeload()
