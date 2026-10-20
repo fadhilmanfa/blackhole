@@ -24,11 +24,11 @@ namespace DynamicWin.UI.Menu.Menus
 
         // Collapsed "playing" layout: album art + equalizer, centered as a
         // pair with a visible gap so the bars don't crowd the artwork.
-        // Art 28px + gap 16px + EQ 70px = 114px total, centered on screen:
-        // artMid = -57+14 = -43, eqMid = +57-35 = +22.
-        const float CollapseArtSize = 28f;
+        // Art 24px + gap 16px + EQ 70px = 110px total, centered on screen:
+        // artMid = -55+12 = -43, eqMid = +55-35 = +20.
+        const float CollapseArtSize = 24f;
         const float CollapseArtX = -43f;
-        const float CollapseEqX = 22f;
+        const float CollapseEqX = 20f;
 
         // ── Island sizes ────────────────────────────────────────────────
         // Every state declares its own size instead of inheriting one
@@ -37,10 +37,10 @@ namespace DynamicWin.UI.Menu.Menus
         //
         // Collapsed pill widths are independent: idle is an empty capsule
         // and can be the narrowest, while music needs room for its content
-        // (art -57..-29 + EQ -13..+57 = 114px, so 145 leaves ~15px of air).
+        // (art -55..-31 + EQ -15..+55 = 110px, so 145 leaves ~17px of air).
         //
         // Collapsed pill height, shared by the idle and music states.
-        // CollapseArtSize (28) + 10 keeps ~5px of air above and below, so
+        // CollapseArtSize (24) + 14 keeps ~7px of air above and below, so
         // the artwork and EQ keep their size while the capsule gets slimmer.
         const float CollapsedHeight = 38f;
 
