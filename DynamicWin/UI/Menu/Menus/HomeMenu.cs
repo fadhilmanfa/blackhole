@@ -30,11 +30,11 @@ namespace DynamicWin.UI.Menu.Menus
         const float CollapseArtX = -44f;
         const float CollapseEqX = 29f;
 
-        // Collapsed island content sits slightly below the top edge so the
-        // album art / equalizer don't hug the notch, with matching room
-        // left below it as well.
-        const float CollapseIslandHeight = 42f;
-        const float CollapseContentTopOffset = 1.5f;
+        // Empty room above and below the album art. The island height is
+        // derived from the art size so the content never hugs the pill
+        // edge, while staying centered vertically.
+        const float CollapseContentPadding = 8f;
+        const float CollapseIslandHeight = CollapseArtSize + CollapseContentPadding * 2f;
 
         SmallVisualizerWidget eqWidget;
         DWImage collapseArt;
@@ -76,10 +76,10 @@ namespace DynamicWin.UI.Menu.Menus
 
             MediaState.EnsureStarted();
 
-            eqWidget = new SmallVisualizerWidget(island, new Vec2(CollapseEqX, CollapseContentTopOffset), UIAlignment.Center);
+            eqWidget = new SmallVisualizerWidget(island, new Vec2(CollapseEqX, 0), UIAlignment.Center);
             objects.Add(eqWidget);
 
-            collapseArt = new DWImage(island, Res.Spotify, new Vec2(CollapseArtX, CollapseContentTopOffset), new Vec2(CollapseArtSize, CollapseArtSize), UIAlignment.Center, maskOwnRect: true)
+            collapseArt = new DWImage(island, Res.Spotify, new Vec2(CollapseArtX, 0), new Vec2(CollapseArtSize, CollapseArtSize), UIAlignment.Center, maskOwnRect: true)
             {
                 allowIconThemeColor = false,
                 Color = Col.White,

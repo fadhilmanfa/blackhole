@@ -99,58 +99,52 @@ namespace DynamicWin.UI.UIElements
             }
 
             // Border
-            var rect = GetRect();
             var paint2 = GetPaint();
-            rect.Inflate(2.5f / 2, 2.5f / 2);
             paint2.Color = borderCol.Override(a: borderCol.a * 0.35f).Value();
             paint2.IsStroke = true;
             paint2.StrokeWidth = 2.5f;
 
+            if (mode == IslandMode.Notch && !hidden)
+            {
+                // Notch mode uses one continuous silhouette: square corners
+                // at the screen edge and a fully rounded bottom, so the sides
+                // flow into the pill without a visible seam.
+                var notchRect = GetNotchRect();
+
+                canvas.DrawRoundRect(notchRect, paint2);
+
+                paint.ImageFilter = null;
+                canvas.DrawRoundRect(notchRect, paint);
+
+                return;
+            }
+
+            var rect = GetRect();
+            rect.Inflate(2.5f / 2, 2.5f / 2);
             canvas.DrawRoundRect(rect, paint2);
 
             paint.ImageFilter = null;
-
-            if (mode == IslandMode.Notch && !hidden)
-            {
-                var path = new SKPath();
-
-                var awidth = (float)(Math.Max(0f, Size.Y / 45));
-                var aheight = (float)(Math.Max(Size.Y / 45, 15)) + (LocalPosition.Y - topOffset);
-                var y = 0;
-
-                { // Left notch curve
-
-                    var x = Position.X - awidth;
-
-                    path.MoveTo(x - awidth, y);
-                    path.CubicTo(
-                        x + 0, y,
-                        x + awidth, y,
-                        x + awidth, y + aheight);
-                    path.LineTo(x + awidth, y);
-                    path.LineTo(x + 0, y);
-                }
-
-                { // Right notch curve
-
-                    var x = Position.X + Size.X + awidth;
-
-                    path.MoveTo(x + awidth, y);
-                    path.CubicTo(
-                        x - 0, y,
-                        x - awidth, y,
-                        x - awidth, y + aheight);
-                    path.LineTo(x - awidth, y);
-                    path.LineTo(x - 0, y);
-                }
-
-                var r = SKRect.Create(Position.X, 0, Size.X, (Position.Y - topOffset) + topOffset + Size.Y / 2);
-                path.AddRect(r);
-
-                canvas.DrawPath(path, paint);
-            }
-
             canvas.DrawRoundRect(GetRect(), paint);
+        }
+
+        SKRoundRect GetNotchRect()
+        {
+            var rect = SKRect.Create((int)Position.X, (int)Position.Y, (int)Size.X, (int)Size.Y);
+            float radius = Math.Min(roundRadius, Math.Min(rect.Width, rect.Height) / 2f);
+            float top = Math.Min(rect.Top, 0f);
+
+            var notchRect = new SKRoundRect();
+            notchRect.SetRectRadii(
+                SKRect.Create(rect.Left, top, rect.Width, rect.Bottom - top),
+                new SKPoint[]
+                {
+                    new SKPoint(0, 0),
+                    new SKPoint(0, 0),
+                    new SKPoint(radius, radius),
+                    new SKPoint(radius, radius)
+                });
+
+            return notchRect;
         }
 
         public override SKRoundRect GetInteractionRect()
