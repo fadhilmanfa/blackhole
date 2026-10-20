@@ -19,6 +19,9 @@ namespace DynamicWin.Utils
         private static readonly object stateLock = new object();
 
         private static bool isPlaying;
+        private static bool isMediaOpen;
+        private static bool mediaDismissed;
+        private static string trackKey = "";
         private static string title = "";
         private static string artist = "";
         private static SKBitmap? albumArt;
@@ -50,6 +53,30 @@ namespace DynamicWin.Utils
         private const int NegativeNeeded = 4;  // ~2s to confirm stopped
 
         public static bool IsPlaying { get { lock (stateLock) return isPlaying; } }
+
+        /// <summary>
+        /// True while a media session is still open, including when playback
+        /// is paused. The island keeps the now-playing layout until the
+        /// player/tab is closed or the user dismisses it.
+        /// </summary>
+        public static bool IsMediaVisible
+        {
+            get { lock (stateLock) return isMediaOpen && !mediaDismissed; }
+        }
+
+        /// <summary>
+        /// Hides the current now-playing state without stopping playback.
+        /// It comes back when playback resumes or the track changes.
+        /// </summary>
+        public static void DismissCurrentMedia()
+        {
+            lock (stateLock)
+            {
+                if (!isMediaOpen) return;
+                mediaDismissed = true;
+            }
+        }
+
         public static string Title { get { lock (stateLock) return title; } }
         public static string Artist { get { lock (stateLock) return artist; } }
         public static SKBitmap? AlbumArt { get { lock (stateLock) return albumArt; } }
@@ -131,7 +158,10 @@ namespace DynamicWin.Utils
         private static async Task PollOnce()
         {
             bool smtcPlaying = false;
+            bool smtcPaused = false;
+            bool smtcChanging = false;
             bool hasSmtcSession = false;
+            bool sessionExists = false;
             string newTitle = "";
             string newArtist = "";
             string newArtKey = "";
@@ -143,10 +173,18 @@ namespace DynamicWin.Utils
                 var session = PickSession(manager);
                 if (session != null)
                 {
-                    hasSmtcSession = true;
+                    sessionExists = true;
                     var status = session.GetPlaybackInfo()?.PlaybackStatus;
                     smtcPlaying = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                    if (smtcPlaying || status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                    smtcPaused = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+                    smtcChanging = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Changing;
+
+                    // Playing, paused, or changing means the media is still
+                    // open. A stopped/closed session should not keep stale
+                    // music on the island forever.
+                    hasSmtcSession = smtcPlaying || smtcPaused || smtcChanging;
+
+                    if (smtcPlaying || smtcPaused)
                     {
                         mediaProps = await session.TryGetMediaPropertiesAsync();
                         if (mediaProps != null)
@@ -174,7 +212,6 @@ namespace DynamicWin.Utils
             bool active = smtcPlaying || audioActive;
 
             bool becamePlaying = false;
-            bool becameIdle = false;
             lock (stateLock)
             {
                 if (active)
@@ -192,45 +229,66 @@ namespace DynamicWin.Utils
                     negativeStreak++;
                     positiveStreak = 0;
                     if (isPlaying && negativeStreak >= NegativeNeeded)
-                    {
                         isPlaying = false;
-                        becameIdle = true;
-                    }
                 }
 
-                if (isPlaying && newArtKey != "")
+                // Paused sessions stay visible until the player/tab closes.
+                isMediaOpen = hasSmtcSession || isPlaying;
+
+                if (becamePlaying)
+                {
+                    // Resuming after the user dismissed the status brings it
+                    // back. Dismissing while playing stays dismissed because
+                    // there is no positive transition.
+                    mediaDismissed = false;
+                }
+
+                if (newArtKey != "")
                 {
                     title = newTitle;
                     artist = newArtist;
 
-                    // New or unknown track: drop stale art so the UI stops
-                    // showing the previous cover. The palette follows the art.
-                    if (artKey != newArtKey && albumArt != null)
+                    if (trackKey != newArtKey)
                     {
-                        albumArt.Dispose();
-                        albumArt = null;
-                        artHash = "";
-                        artVersion++;
+                        trackKey = newArtKey;
 
-                        accentPrimary = null;
-                        accentSecondary = null;
-                        accentVersion++;
+                        // A genuinely new track should reappear even if the
+                        // previous one was dismissed.
+                        mediaDismissed = false;
+
+                        // New or unknown track: drop stale art so the UI stops
+                        // showing the previous cover. The palette follows the art.
+                        if (artKey != newArtKey && albumArt != null)
+                        {
+                            albumArt.Dispose();
+                            albumArt = null;
+                            artHash = "";
+                            artVersion++;
+
+                            accentPrimary = null;
+                            accentSecondary = null;
+                            accentVersion++;
+                        }
                     }
                 }
-                else if (isPlaying && !hasSmtcSession)
+                else if (isPlaying && !sessionExists)
                 {
                     // Audio-only playback (game, app without SMTC): don't
                     // keep showing metadata from a player that already left.
                     title = "";
                     artist = "";
+                    trackKey = "";
                 }
+
+                if (!isMediaOpen)
+                    mediaDismissed = false;
             }
 
             // Fetch the cover right away on a track change, then re-check
             // the same track at a slower cadence: browsers (Chrome/YouTube)
             // publish the media session before the real thumbnail exists, so
             // the first fetch can land on a placeholder or browser icon.
-            if (IsPlaying && newArtKey != "" && mediaProps?.Thumbnail != null)
+            if (IsMediaVisible && newArtKey != "" && mediaProps?.Thumbnail != null)
             {
                 long now = Environment.TickCount64;
                 bool newTrack = newArtKey != lastArtAttemptKey;
@@ -239,15 +297,6 @@ namespace DynamicWin.Utils
                     lastArtCheckMs = now;
                     lastArtAttemptKey = newArtKey;
                     await RefreshArtAsync(newArtKey, mediaProps);
-                }
-            }
-
-            if (becameIdle)
-            {
-                lock (stateLock)
-                {
-                    title = "";
-                    artist = "";
                 }
             }
         }
@@ -279,6 +328,15 @@ namespace DynamicWin.Utils
                 {
                     if (session.GetPlaybackInfo()?.PlaybackStatus ==
                         GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                        return session;
+                }
+
+                // No playing session: prefer a paused one so its now-playing
+                // state stays pinned until the user closes it.
+                foreach (var session in sessions)
+                {
+                    if (session.GetPlaybackInfo()?.PlaybackStatus ==
+                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
                         return session;
                 }
 

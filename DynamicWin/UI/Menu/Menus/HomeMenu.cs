@@ -84,12 +84,12 @@ namespace DynamicWin.UI.Menu.Menus
         public override Vec2 IslandSize()
         {
             // Idle ("diam") and music have their own declared pill sizes.
-            return MediaState.IsPlaying ? MusicIslandSize : IdleIslandSize;
+            return MediaState.IsMediaVisible ? MusicIslandSize : IdleIslandSize;
         }
 
         public override Vec2 IslandSizeBig()
         {
-            var baseSize = MediaState.IsPlaying ? MusicExpandedSize : IdleExpandedSize;
+            var baseSize = MediaState.IsMediaVisible ? MusicExpandedSize : IdleExpandedSize;
 
             // The tray grows the island downwards only while it holds files;
             // the gap keeps the card from touching the tray icons.
@@ -145,14 +145,14 @@ namespace DynamicWin.UI.Menu.Menus
         public override void Update()
         {
             bool hover = RendererMain.Instance.MainIsland.IsHovering;
-            bool playing = MediaState.IsPlaying;
+            bool mediaVisible = MediaState.IsMediaVisible;
 
             if (hover && !wasHovering)
                 tray.RefreshFiles();
             wasHovering = hover;
 
             float dt = RendererMain.Instance.DeltaTime;
-            bool showMusic = !hover && playing;
+            bool showMusic = !hover && mediaVisible;
 
             // Shared 0..1 progress for the collapsed cover + EQ pair.
             musicContentAnim = Mathf.Lerp(musicContentAnim, showMusic ? 1f : 0f, MusicContentFadeSpeed * dt);
@@ -176,7 +176,7 @@ namespace DynamicWin.UI.Menu.Menus
             float artScale = (0.75f + 0.25f * reveal) * (0.88f + 0.12f * artSwapAnim);
             collapseArt.Size = new Vec2(CollapseArtSize * artScale, CollapseArtSize * artScale);
 
-            if (playing)
+            if (mediaVisible)
             {
                 int version = MediaState.AlbumArtVersion;
                 if (version != shownArtVersion)
@@ -208,8 +208,8 @@ namespace DynamicWin.UI.Menu.Menus
                 }
             }
 
-            calendarCard.SetActive(hover && !playing);
-            mediaCard.SetActive(hover && playing);
+            calendarCard.SetActive(hover && !mediaVisible);
+            mediaCard.SetActive(hover && mediaVisible);
             tray.SetActive(hover);
 
             float cardY = CurrentCardY;

@@ -24,6 +24,7 @@ namespace DynamicWin.UI.Widgets.Big
         DWImageButton prevBtn;
         DWImageButton playBtn;
         DWImageButton nextBtn;
+        DWButton dismissBtn;
 
         // Bumped whenever MediaState swaps the bitmap, so late-arriving
         // album art swaps in even if the title never changed between polls.
@@ -117,6 +118,19 @@ namespace DynamicWin.UI.Widgets.Big
             nextBtn.Anchor = new Vec2(0, 0);
             AddLocalObject(nextBtn);
 
+            // Dismiss the now-playing status without stopping playback.
+            // It comes back when playback resumes or the track changes.
+            dismissBtn = new DismissButton(this, new Vec2(221, 84), new Vec2(28, 28), DismissMedia, UIAlignment.TopLeft)
+            {
+                roundRadius = 25,
+                normalColor = Col.Transparent,
+                hoverColor = Theme.Error.Override(a: 0.85f),
+                clickColor = Theme.Error.Override(a: 0.65f),
+                expandInteractionRect = 4
+            };
+            dismissBtn.Anchor = new Vec2(0, 0);
+            AddLocalObject(dismissBtn);
+
         }
 
         protected override float GetWidgetWidth() { return Width; }
@@ -165,6 +179,11 @@ namespace DynamicWin.UI.Widgets.Big
             }
         }
 
+        void DismissMedia()
+        {
+            MediaState.DismissCurrentMedia();
+        }
+
         void TogglePlayPause()
         {
             bool target = !(iconShowsPlaying ?? MediaState.IsPlaying);
@@ -189,6 +208,29 @@ namespace DynamicWin.UI.Widgets.Big
             var glyph = (iconShowsPlaying ?? actual) ? Res.Pause : Res.Play;
             if (!ReferenceEquals(playBtn.Image.Image, glyph))
                 playBtn.Image.Image = glyph;
+        }
+
+        class DismissButton : DWButton
+        {
+            public DismissButton(UIObject? parent, Vec2 position, Vec2 size, Action clickCallback, UIAlignment alignment = UIAlignment.TopCenter)
+                : base(parent, position, size, clickCallback, alignment) { }
+
+            public override void Draw(SKCanvas canvas)
+            {
+                base.Draw(canvas);
+
+                var paint = GetPaint();
+                paint.IsStroke = true;
+                paint.StrokeWidth = 1.8f;
+                paint.StrokeCap = SKStrokeCap.Round;
+                paint.Color = GetColor(IsHovering ? Col.White : Theme.TextSecond).Value();
+
+                float pad = Size.X * 0.33f;
+                canvas.DrawLine(Position.X + pad, Position.Y + pad,
+                    Position.X + Size.X - pad, Position.Y + Size.Y - pad, paint);
+                canvas.DrawLine(Position.X + Size.X - pad, Position.Y + pad,
+                    Position.X + pad, Position.Y + Size.Y - pad, paint);
+            }
         }
 
         public override void OnDestroy()
