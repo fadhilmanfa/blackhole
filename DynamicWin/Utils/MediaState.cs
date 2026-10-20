@@ -24,6 +24,12 @@ namespace DynamicWin.Utils
         private static string artKey = "";
         private static int artVersion;
 
+        // Palette derived from the current cover; null means "no art" and
+        // the UI falls back to the active theme colours.
+        private static Col? accentPrimary;
+        private static Col? accentSecondary;
+        private static int accentVersion;
+
         private static int positiveStreak;
         private static int negativeStreak;
 
@@ -44,6 +50,15 @@ namespace DynamicWin.Utils
         /// UI caches by this version so late-arriving fetches are picked up.
         /// </summary>
         public static int AlbumArtVersion { get { lock (stateLock) return artVersion; } }
+
+        /// <summary>Bright accent colour sampled from the current album art.</summary>
+        public static Col? AccentPrimary { get { lock (stateLock) return accentPrimary; } }
+
+        /// <summary>Dimmed companion colour for gradients on the same art.</summary>
+        public static Col? AccentSecondary { get { lock (stateLock) return accentSecondary; } }
+
+        /// <summary>Bumped whenever the extracted accent palette changes.</summary>
+        public static int AccentVersion { get { lock (stateLock) return accentVersion; } }
 
         /// <summary>
         /// Returns a private copy of the album art (taken under the lock), so the
@@ -179,6 +194,12 @@ namespace DynamicWin.Utils
                         albumArt.Dispose();
                         albumArt = null;
                         artVersion++;
+
+                        // Clear the palette with the art so accents never
+                        // outlive the cover they came from.
+                        accentPrimary = null;
+                        accentSecondary = null;
+                        accentVersion++;
                     }
                 }
             }
@@ -225,6 +246,10 @@ namespace DynamicWin.Utils
                 System.Diagnostics.Debug.WriteLine("Album art load failed: " + e.Message);
             }
 
+            // Extract outside the lock: sampling is CPU work and must not
+            // stall UI threads that read IsPlaying/Title every frame.
+            var palette = art == null ? null : AlbumArtColor.Extract(art);
+
             lock (stateLock)
             {
                 // Drop the fetch if the track already changed again.
@@ -242,6 +267,10 @@ namespace DynamicWin.Utils
                     albumArt?.Dispose();
                     albumArt = art;
                     artVersion++;
+
+                    accentPrimary = palette?.primary;
+                    accentSecondary = palette?.secondary;
+                    accentVersion++;
                 }
                 artKey = art == null ? "" : key;
             }

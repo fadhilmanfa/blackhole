@@ -39,7 +39,10 @@ namespace DynamicWin.UI.Widgets.Big
             {
                 allowIconThemeColor = false,
                 Color = Col.White,
-                roundRadius = 12f
+                roundRadius = 12f,
+                // Covers come in many aspect ratios: crop-to-fill keeps the
+                // square shape instead of squashing portrait/wide artwork.
+                Fit = DWImage.ImageFit.Cover
             };
             artImage.Anchor = new Vec2(0, 0);
             AddLocalObject(artImage);

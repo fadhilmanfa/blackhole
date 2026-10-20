@@ -11,15 +11,53 @@ namespace DynamicWin.UI.Widgets.Small
     {
         AudioVisualizer audioVisualizer;
 
+        // "Now playing" palette sourced from the album art. Kept separately
+        // from the theme so we can cross-fade when the track changes.
+        int lastAccentVersion = -1;
+        Col currentPrimary;
+        Col currentSecondary;
+        Col targetPrimary;
+        Col targetSecondary;
+
         public SmallVisualizerWidget(UIObject? parent, Vec2 position, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, position, alignment)
         {
-            audioVisualizer = new AudioVisualizer(this, new Vec2(-2.25f, 0), new Vec2(GetWidgetSize().X, GetWidgetSize().Y), UIAlignment.Center, length: 16, 16)
+            // 16 / (16/9) = 9 bar pas, tidak overflow.
+            // Offset +1.25 = setengah gap kanan (2.5px) supaya bar rata tengah.
+            audioVisualizer = new AudioVisualizer(this, new Vec2(1.25f, 0), new Vec2(GetWidgetSize().X, GetWidgetSize().Y), UIAlignment.Center, length: 16, 16)
             {
-                divisor = 1.75f,
+                divisor = 16f / 9f,
                 barDownSmoothing = 10,
                 barUpSmoothing = 20
             };
             AddLocalObject(audioVisualizer);
+
+            currentPrimary = targetPrimary = audioVisualizer.Primary ?? Col.White;
+            currentSecondary = targetSecondary = audioVisualizer.Secondary ?? Col.White.Override(a: 0.5f);
+        }
+
+        public override void Update(float deltaTime)
+        {
+            base.Update(deltaTime);
+
+            int version = MediaState.AccentVersion;
+            if (version != lastAccentVersion)
+            {
+                lastAccentVersion = version;
+
+                targetPrimary = MediaState.AccentPrimary ?? Theme.Primary ?? Col.White;
+                targetSecondary = MediaState.AccentSecondary
+                    ?? Theme.Secondary?.Override(a: 0.5f)
+                    ?? Col.White.Override(a: 0.5f);
+            }
+
+            // Ease towards the current palette so track switches fade
+            // instead of snapping between two unrelated colours.
+            float t = Mathf.Clamp(deltaTime * 5f, 0f, 1f);
+            currentPrimary = Col.Lerp(currentPrimary, targetPrimary, t);
+            currentSecondary = Col.Lerp(currentSecondary, targetSecondary, t);
+
+            audioVisualizer.Primary = currentPrimary;
+            audioVisualizer.Secondary = currentSecondary;
         }
 
         protected override float GetWidgetWidth()

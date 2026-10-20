@@ -26,9 +26,11 @@ namespace DynamicWin.UI.Menu.Menus
 
         // Collapsed "playing" layout: album art + equalizer, centered as a
         // pair with a visible gap so the bars don't crowd the artwork.
+        // Art 28px + gap 16px + EQ 70px = 114px total, centered on screen:
+        // artMid = -57+14 = -43, eqMid = +57-35 = +22.
         const float CollapseArtSize = 28f;
-        const float CollapseArtX = -44f;
-        const float CollapseEqX = 29f;
+        const float CollapseArtX = -43f;
+        const float CollapseEqX = 22f;
 
         // Empty room above and below the album art. The island height is
         // derived from the art size so the content never hugs the pill
@@ -83,7 +85,10 @@ namespace DynamicWin.UI.Menu.Menus
             {
                 allowIconThemeColor = false,
                 Color = Col.White,
-                roundRadius = 8f
+                roundRadius = 8f,
+                // Crop-to-fill so non-square covers still sit perfectly in
+                // the small square slot instead of being stretched.
+                Fit = DWImage.ImageFit.Cover
             };
             objects.Add(collapseArt);
 

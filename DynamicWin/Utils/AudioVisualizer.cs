@@ -236,16 +236,18 @@ namespace DynamicWin.Utils
 
                 var paint = GetPaint();
 
-                for (int i = 0; i < barHeight.Length / divisor; i++)
+                int avgCount = Math.Max(1, (int)(barHeight.Length / divisor));
+                for (int i = 0; i < avgCount; i++)
                 {
                     averageAmplitude += Mathf.Clamp(barHeight[i] * ((barHeight.Length - i) / barHeight.Length * 2 + 1f) * (Random.Shared.NextSingle() + 0.1f), 0, 1) * 4.5f;
                 }
 
                 if (!avAmpsMode)
                 {
-                    var barWidth = width / (barHeight.Length / divisor);
+                    int barCount = Math.Max(1, (int)(barHeight.Length / divisor));
+                    var barWidth = width / barCount;
 
-                    for (int i = 0; i < barHeight.Length / divisor; i++)
+                    for (int i = 0; i < barCount; i++)
                     {
                         float bH = (int)(barHeight[i] * height) + 1.5f; // Scale factor for visualization
 
@@ -260,9 +262,10 @@ namespace DynamicWin.Utils
                 }
                 else
                 {
-                    var barWidth = width / (smoothAverageAmps.Length / divisor);
+                    int barCount = Math.Max(1, (int)(smoothAverageAmps.Length / divisor));
+                    var barWidth = width / barCount;
 
-                    for (int i = 0; i < smoothAverageAmps.Length / divisor; i++)
+                    for (int i = 0; i < barCount; i++)
                     {
                         float bH = (int)(smoothAverageAmps[i] * height) + 1.5f; // Scale factor for visualization
 
