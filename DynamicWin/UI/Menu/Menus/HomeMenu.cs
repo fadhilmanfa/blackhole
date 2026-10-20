@@ -35,11 +35,12 @@ namespace DynamicWin.UI.Menu.Menus
         // shared pill, so the idle ("diam") island and the music island
         // can be tuned independently.
         //
-        // Collapsed: keep the music height >= CollapseArtSize + 12 so the
-        // artwork still has breathing room (44 is the current comfort).
-        // Music pill is narrower than idle: content spans 114px (art -57..-29,
-        // EQ -13..+57), so 145 leaves ~15px of air on each side.
-        static readonly Vec2 IdleIslandSize = new Vec2(200, 44);
+        // Collapsed pill widths are independent: idle is an empty capsule
+        // and can be the narrowest, while music needs room for its content
+        // (art -57..-29 + EQ -13..+57 = 114px, so 145 leaves ~15px of air).
+        // Keep heights >= CollapseArtSize + 12 so the artwork has breathing
+        // room (44 today).
+        static readonly Vec2 IdleIslandSize = new Vec2(120, 44);
         static readonly Vec2 MusicIslandSize = new Vec2(145, 44);
 
         // Expanded: the tray is added on top when files are present.

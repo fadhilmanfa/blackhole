@@ -199,6 +199,19 @@ namespace DynamicWin.UI.UIElements
         }
 
         /// <summary>
+        /// Middle-aligned labels anchor on the full line box, which leaves
+        /// the glyphs sitting high because drawing starts at the baseline.
+        /// Call after setting Font/TextSize to nudge the baseline down so
+        /// the ink itself is vertically centred.
+        /// </summary>
+        public void CenterInkVertically()
+        {
+            using var paint = new SKPaint { Typeface = font, TextSize = textSize };
+            // (descent - ascent) / 2 - (ascent + descent) / 2 == -ascent
+            LocalPosition.Y += -paint.FontMetrics.Ascent;
+        }
+
+        /// <summary>
         /// Positions this text so its visible glyphs are centered on
         /// <paramref name="center"/>. Ink starts at the draw origin and spans
         /// roughly the advance width, so centering on the advance (never on

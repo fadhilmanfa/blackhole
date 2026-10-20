@@ -43,6 +43,10 @@ namespace DynamicWin.UI.Menu.Menus
 
         float islandScale = 1.25f;
 
+        // Matches the idle HomeMenu pill (120x44) in height so switching
+        // between idle and the volume popup never changes the silhouette.
+        const float IslandHeight = 44f;
+
         public VolumeAdjustMenu()
         {
             instance = this;
@@ -70,6 +74,7 @@ namespace DynamicWin.UI.Menu.Menus
             muteText.TextSize = 15;
             muteText.Font = Res.InterBold;
             muteText.Color = Theme.Error;
+            muteText.CenterInkVertically();
             objects.Add(muteText);
 
             volume = new DWProgressBar(island, new Vec2(-20, 0), new Vec2(150, 5f), UIAlignment.MiddleRight);
@@ -164,17 +169,22 @@ namespace DynamicWin.UI.Menu.Menus
 
         public override Vec2 IslandSize()
         {
-            return new Vec2(250, 35) * islandScale;
+            // The intro "pop" only stretches the width; height stays fixed
+            // so the popup is never taller or thinner than the idle pill.
+            return new Vec2(250f * islandScale, IslandHeight);
         }
 
         public override Vec2 IslandSizeBig()
         {
-            return base.IslandSizeBig() * 1.05f;
+            // Overlay popups should not resize on hover.
+            return IslandSize();
         }
 
         public override Col IslandBorderColor()
         {
-            return IsMuted() ? new Col(0.85f, 0.1f, 0.15f) : new Col(0.5f, 0.5f, 0.5f);
+            // Silent state drops the outline entirely; the red label and
+            // mute pill already carry the state.
+            return IsMuted() ? Col.Transparent : new Col(0.5f, 0.5f, 0.5f);
         }
     }
 }
