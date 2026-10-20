@@ -43,9 +43,9 @@ namespace DynamicWin.UI.Menu.Menus
 
         float islandScale = 1.25f;
 
-        // Matches the idle HomeMenu pill (120x44) in height so switching
+        // Matches the idle HomeMenu pill (120x38) in height so switching
         // between idle and the volume popup never changes the silhouette.
-        const float IslandHeight = 44f;
+        const float IslandHeight = 38f;
 
         public VolumeAdjustMenu()
         {

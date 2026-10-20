@@ -38,10 +38,14 @@ namespace DynamicWin.UI.Menu.Menus
         // Collapsed pill widths are independent: idle is an empty capsule
         // and can be the narrowest, while music needs room for its content
         // (art -57..-29 + EQ -13..+57 = 114px, so 145 leaves ~15px of air).
-        // Keep heights >= CollapseArtSize + 12 so the artwork has breathing
-        // room (44 today).
-        static readonly Vec2 IdleIslandSize = new Vec2(120, 44);
-        static readonly Vec2 MusicIslandSize = new Vec2(145, 44);
+        //
+        // Collapsed pill height, shared by the idle and music states.
+        // CollapseArtSize (28) + 10 keeps ~5px of air above and below, so
+        // the artwork and EQ keep their size while the capsule gets slimmer.
+        const float CollapsedHeight = 38f;
+
+        static readonly Vec2 IdleIslandSize = new Vec2(120, CollapsedHeight);
+        static readonly Vec2 MusicIslandSize = new Vec2(145, CollapsedHeight);
 
         // Expanded: the tray is added on top when files are present.
         // Width must stay >= the card width + 16 (280) or the now-playing
