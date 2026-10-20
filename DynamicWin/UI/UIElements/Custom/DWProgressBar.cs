@@ -13,6 +13,15 @@ namespace DynamicWin.UI.UIElements.Custom
         public float value = 1f;
         public float vaueSmoothing = 15f;
 
+        // Optional springy fill: overshoots the new value a little before
+        // settling, so volume steps read as a small jelly pop.
+        public bool elastic = false;
+
+        const float ElasticStiffness = 190f;
+        const float ElasticDamping = 15f;
+
+        float velocity;
+
         public Col contentColor;
 
         public DWProgressBar(UIObject? parent, Vec2 position, Vec2 size, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, position, size, alignment)
@@ -31,7 +40,28 @@ namespace DynamicWin.UI.UIElements.Custom
         {
             base.Update(deltaTime);
 
-            displayValue = Mathf.Lerp(displayValue, value, vaueSmoothing * deltaTime);
+            if (elastic)
+            {
+                velocity += (value - displayValue) * ElasticStiffness * deltaTime;
+                velocity *= Mathf.Clamp(1f - ElasticDamping * deltaTime, 0f, 1f);
+                displayValue += velocity * deltaTime;
+
+                // Keep the fill inside the track; stop it from clipping out.
+                if (displayValue <= 0f)
+                {
+                    displayValue = 0f;
+                    if (velocity < 0f) velocity = 0f;
+                }
+                else if (displayValue >= 1f)
+                {
+                    displayValue = 1f;
+                    if (velocity > 0f) velocity = 0f;
+                }
+            }
+            else
+            {
+                displayValue = Mathf.Lerp(displayValue, value, vaueSmoothing * deltaTime);
+            }
         }
 
         public override void Draw(SKCanvas canvas)

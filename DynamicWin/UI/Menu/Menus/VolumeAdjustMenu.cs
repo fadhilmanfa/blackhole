@@ -39,9 +39,25 @@ namespace DynamicWin.UI.Menu.Menus
 
         static VolumeAdjustMenu instance;
 
-        float shakeStrength = 0f;
-
         float islandScale = 1.25f;
+
+        // Directional jelly: fresh presses build a sideways pull, the island
+        // stays pulled while the keys are active, then springs back with a
+        // little overshoot once the presses stop.
+        float jellyX;
+        float jellyVelocity;
+        float jellyTarget;
+        float jellyHold;
+        bool wasVolumeUpDown;
+        bool wasVolumeDownDown;
+
+        const float JellyPullStep = 15f;
+        const float JellyMaxPull = 22f;
+        const float JellyMaxSpeed = 600f;
+        const float JellyStiffness = 260f;
+        const float JellyDamping = 12f;
+        const float JellyHoldTime = 0.22f;
+        const float JellyReleaseSpeed = 7f;
 
         // Matches the idle HomeMenu pill (120x38) in height so switching
         // between idle and the volume popup never changes the silhouette.
@@ -52,7 +68,26 @@ namespace DynamicWin.UI.Menu.Menus
             instance = this;
             timerUntilClose = 0f;
 
-            shakeStrength = 0f;
+            // The key that opened the popup is still held; pull immediately
+            // and seed the edge trackers so the first Update doesn't pull twice.
+            wasVolumeUpDown = KeyHandler.keyDown.Contains(System.Windows.Forms.Keys.VolumeUp);
+            wasVolumeDownDown = KeyHandler.keyDown.Contains(System.Windows.Forms.Keys.VolumeDown);
+
+            if (wasVolumeUpDown)
+                NudgeJelly(1f);
+            if (wasVolumeDownDown)
+                NudgeJelly(-1f);
+        }
+
+        void NudgeJelly(float direction)
+        {
+            // A reversal should answer at once instead of slowly unwinding
+            // the pull from the opposite side.
+            if (jellyTarget != 0f && Math.Sign(jellyTarget) != Math.Sign(direction))
+                jellyTarget = 0f;
+
+            jellyTarget = Mathf.Clamp(jellyTarget + direction * JellyPullStep, -JellyMaxPull, JellyMaxPull);
+            jellyHold = 0f;
         }
 
         public override List<UIObject> InitializeMenu(IslandObject island)
@@ -77,7 +112,10 @@ namespace DynamicWin.UI.Menu.Menus
             muteText.CenterInkVertically();
             objects.Add(muteText);
 
-            volume = new DWProgressBar(island, new Vec2(-20, 0), new Vec2(150, 5f), UIAlignment.MiddleRight);
+            volume = new DWProgressBar(island, new Vec2(-20, 0), new Vec2(150, 5f), UIAlignment.MiddleRight)
+            {
+                elastic = true
+            };
             volume.Anchor.X = 1;
             objects.Add(volume);
 
@@ -86,31 +124,45 @@ namespace DynamicWin.UI.Menu.Menus
 
         public static float timerUntilClose = 0f;
 
-        float timer = 0;
-        float shakeSpeed = 35;
-
-        float Func(float x)
-        {
-            //double result = -Math.Pow(x, 3f) + (-Math.Pow(x - 1, 6f * 4)) + 1;
-            //double result = -Math.Pow((x / 0.5) - 1, 2) + 1;
-            double result = 1f - (x < 0.5 ? 2 * x * x : 1 - Math.Pow(-2 * x + 2, 2) / 2);
-
-            return (float)result;
-        }
-
-        float seconds = 0f;
         bool mute = false;
 
         public override void Update()
         {
             base.Update();
 
+            float dt = RendererMain.Instance.DeltaTime;
+
             if (timerUntilClose > 2.75f) MenuManager.CloseOverlay();
 
-            islandScale = Mathf.Lerp(islandScale, 1f, 5f * RendererMain.Instance.DeltaTime);
+            islandScale = Mathf.Lerp(islandScale, 1f, 5f * dt);
 
             var volume = GetVolumePercent();
             var isMuted = IsMuted();
+
+            // Each fresh press adds another step of pull (capped), while a
+            // held key keeps the current pull alive. Spamming therefore feels
+            // like one continuous tug instead of separate kicks.
+            bool volumeUpDown = KeyHandler.keyDown.Contains(System.Windows.Forms.Keys.VolumeUp);
+            bool volumeDownDown = KeyHandler.keyDown.Contains(System.Windows.Forms.Keys.VolumeDown);
+
+            if (volumeUpDown && !wasVolumeUpDown)
+                NudgeJelly(1f);
+            if (volumeDownDown && !wasVolumeDownDown)
+                NudgeJelly(-1f);
+
+            wasVolumeUpDown = volumeUpDown;
+            wasVolumeDownDown = volumeDownDown;
+
+            if (volumeUpDown || volumeDownDown)
+            {
+                jellyHold = 0f;
+            }
+            else
+            {
+                jellyHold += dt;
+                if (jellyHold > JellyHoldTime)
+                    jellyTarget = Mathf.Lerp(jellyTarget, 0f, JellyReleaseSpeed * dt);
+            }
 
             if (volume <= 0f || isMuted)
             {
@@ -121,8 +173,6 @@ namespace DynamicWin.UI.Menu.Menus
                 }
 
                 volumeImage.Image = Res.VolumeOff;
-                RendererMain.Instance.MainIsland.LocalPosition.X = Mathf.Lerp(RendererMain.Instance.MainIsland.LocalPosition.X,
-                    0, 10f * RendererMain.Instance.DeltaTime);
 
                 muteText.SetActive(true);
                 mutedBg.SetActive(true);
@@ -132,17 +182,9 @@ namespace DynamicWin.UI.Menu.Menus
             {
                 if (mute)
                 {
-                    seconds = 0f;
-                    timer = 0f;
                     islandScale = 1.25f;
-
                     mute = false;
                 }
-
-                this.volume.value = 0f;
-
-                RendererMain.Instance.MainIsland.LocalPosition.X = Mathf.Lerp(RendererMain.Instance.MainIsland.LocalPosition.X,
-                    (float)Math.Sin(timer) * shakeStrength, 10f * RendererMain.Instance.DeltaTime);
 
                 volumeImage.Image = Res.VolumeOn;
 
@@ -151,12 +193,22 @@ namespace DynamicWin.UI.Menu.Menus
                 this.volume.SetActive(true);
             }
 
-            timer += RendererMain.Instance.DeltaTime * shakeSpeed;
-            seconds += RendererMain.Instance.DeltaTime;
+            // Damped spring for the sideways jelly. Substep so the motion
+            // stays consistent whether the renderer ticks at 30 or 60 fps.
+            const float JellyStep = 1f / 240f;
+            int jellySteps = Math.Max(1, (int)Math.Ceiling(dt / JellyStep));
+            float jellyDt = dt / jellySteps;
 
-            shakeStrength = Mathf.Clamp(Func(Mathf.Clamp(seconds * 1.5f, 0, 1)), 0, 1f) * 45;
+            for (int i = 0; i < jellySteps; i++)
+            {
+                jellyVelocity += ((jellyTarget - jellyX) * JellyStiffness - JellyDamping * jellyVelocity) * jellyDt;
+                jellyVelocity = Mathf.Clamp(jellyVelocity, -JellyMaxSpeed, JellyMaxSpeed);
+                jellyX += jellyVelocity * jellyDt;
+            }
 
-            timerUntilClose += RendererMain.Instance.DeltaTime;
+            RendererMain.Instance.MainIsland.LocalPosition.X = jellyX;
+
+            timerUntilClose += dt;
 
             this.volume.value = (float)volume / 100f;
 
@@ -169,9 +221,10 @@ namespace DynamicWin.UI.Menu.Menus
 
         public override Vec2 IslandSize()
         {
-            // The intro "pop" only stretches the width; height stays fixed
-            // so the popup is never taller or thinner than the idle pill.
-            return new Vec2(250f * islandScale, IslandHeight);
+            // The intro "pop" only stretches the width; a tiny extra stretch
+            // follows the jelly so the pill feels elastic instead of sliding.
+            float jellyStretch = 1f + Math.Min(Math.Abs(jellyX) / 400f, 0.03f);
+            return new Vec2(250f * islandScale * jellyStretch, IslandHeight);
         }
 
         public override Vec2 IslandSizeBig()
