@@ -31,6 +31,18 @@ namespace DynamicWin.UI.Widgets.Big
         SKBitmap? shownArtBitmap;
         int cycle;
 
+        // Short fade/pop when the cover changes, so skipping tracks does
+        // not hard-cut between two unrelated images.
+        float artSwapAnim = 1f;
+        const float ArtSwapFadeSpeed = 12f;
+
+        // Play/pause button: shows the action it will perform. MediaState is
+        // debounced (up to ~2 s), so clicks flip the glyph immediately and a
+        // short override keeps it from bouncing while the state settles.
+        bool? iconShowsPlaying;
+        long iconOverrideUntil;
+        const int IconOverrideMs = 2500;
+
         public MediaDetailWidget(UIObject? parent, Vec2 position, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, position, alignment)
         {
             controller = new MediaController();
@@ -82,7 +94,7 @@ namespace DynamicWin.UI.Widgets.Big
             prevBtn.Anchor = new Vec2(0, 0);
             AddLocalObject(prevBtn);
 
-            playBtn = new DWImageButton(this, Res.PlayPause, new Vec2(145, 83), new Vec2(30, 30), () => controller.PlayPause(), UIAlignment.TopLeft)
+            playBtn = new DWImageButton(this, Res.Play, new Vec2(145, 83), new Vec2(30, 30), TogglePlayPause, UIAlignment.TopLeft)
             {
                 roundRadius = 25,
                 normalColor = Col.Transparent,
@@ -91,6 +103,7 @@ namespace DynamicWin.UI.Widgets.Big
                 imageScale = 0.8f
             };
             playBtn.Anchor = new Vec2(0, 0);
+            playBtn.Image.Image = MediaState.IsPlaying ? Res.Pause : Res.Play;
             AddLocalObject(playBtn);
 
             nextBtn = new DWImageButton(this, Res.Next, new Vec2(184, 84), new Vec2(28, 28), () => controller.Next(), UIAlignment.TopLeft)
@@ -113,6 +126,11 @@ namespace DynamicWin.UI.Widgets.Big
         {
             base.Update(deltaTime);
 
+            UpdatePlayIcon();
+
+            artSwapAnim = Mathf.Lerp(artSwapAnim, 1f, ArtSwapFadeSpeed * deltaTime);
+            artImage.Alpha = artSwapAnim;
+
             if (cycle++ % 16 != 0) return;
 
             string t = MediaState.Title;
@@ -129,12 +147,48 @@ namespace DynamicWin.UI.Widgets.Big
 
                 if (!ReferenceEquals(art, shownArtBitmap))
                 {
-                    // Only dispose our own copy, never the Res.Spotify placeholder.
-                    shownArtBitmap?.Dispose();
-                    shownArtBitmap = art;
-                    artImage.Image = art ?? Res.Spotify;
+                    if (art != null)
+                    {
+                        // Only dispose our own copy, never the Res.Spotify placeholder.
+                        shownArtBitmap?.Dispose();
+                        shownArtBitmap = art;
+                        artImage.Image = art;
+                        artSwapAnim = 0f;
+                    }
+                    else if (shownArtBitmap == null)
+                    {
+                        artImage.Image = Res.Spotify;
+                    }
+                    // Between tracks, keep the previous cover visible until
+                    // the new fetch lands instead of flashing the placeholder.
                 }
             }
+        }
+
+        void TogglePlayPause()
+        {
+            bool target = !(iconShowsPlaying ?? MediaState.IsPlaying);
+            iconShowsPlaying = target;
+            iconOverrideUntil = Environment.TickCount64 + IconOverrideMs;
+            UpdatePlayIcon();
+            controller.PlayPause();
+        }
+
+        void UpdatePlayIcon()
+        {
+            bool actual = MediaState.IsPlaying;
+
+            if (iconShowsPlaying.HasValue &&
+                (actual == iconShowsPlaying.Value || Environment.TickCount64 > iconOverrideUntil))
+            {
+                // Real playback state caught up, or the key press never took
+                // effect: stop overriding and follow the state again.
+                iconShowsPlaying = null;
+            }
+
+            var glyph = (iconShowsPlaying ?? actual) ? Res.Pause : Res.Play;
+            if (!ReferenceEquals(playBtn.Image.Image, glyph))
+                playBtn.Image.Image = glyph;
         }
 
         public override void OnDestroy()

@@ -65,6 +65,14 @@ namespace DynamicWin.UI.Menu.Menus
         Tray tray;
         bool wasHovering;
 
+        // Collapsed music content (art + EQ) fades and pops in when playback
+        // starts, and out when it stops or the island expands on hover.
+        float musicContentAnim;
+        float artSwapAnim = 1f;
+
+        const float MusicContentFadeSpeed = 9f;
+        const float ArtSwapFadeSpeed = 12f;
+
         float CurrentTrayHeight => tray != null && tray.HasFiles ? TrayHeight : 0f;
         float CurrentCardTrayGap => CurrentTrayHeight > 0 ? CardTrayGap : 0f;
         float CurrentCardY => -(CardBottomMargin + CurrentTrayHeight + CurrentCardTrayGap);
@@ -139,8 +147,30 @@ namespace DynamicWin.UI.Menu.Menus
                 tray.RefreshFiles();
             wasHovering = hover;
 
-            eqWidget.SetActive(!hover && playing);
-            collapseArt.SetActive(!hover && playing);
+            float dt = RendererMain.Instance.DeltaTime;
+            bool showMusic = !hover && playing;
+
+            // Shared 0..1 progress for the collapsed cover + EQ pair.
+            musicContentAnim = Mathf.Lerp(musicContentAnim, showMusic ? 1f : 0f, MusicContentFadeSpeed * dt);
+            artSwapAnim = Mathf.Lerp(artSwapAnim, 1f, ArtSwapFadeSpeed * dt);
+
+            float reveal = Easings.EaseOutCubic(musicContentAnim);
+            bool contentVisible = reveal > 0.01f;
+
+            eqWidget.SilentSetActive(contentVisible);
+            collapseArt.SilentSetActive(contentVisible);
+
+            // Slide up a touch while fading, and let the cover pop in from
+            // 75% so the pair feels like it grows out of the pill.
+            float lift = (1f - reveal) * 4f;
+            collapseArt.LocalPosition = new Vec2(0, lift);
+            eqWidget.LocalPosition = new Vec2(0, lift);
+
+            collapseArt.Alpha = Math.Min(reveal, artSwapAnim);
+            eqWidget.Alpha = reveal;
+
+            float artScale = (0.75f + 0.25f * reveal) * (0.88f + 0.12f * artSwapAnim);
+            collapseArt.Size = new Vec2(CollapseArtSize * artScale, CollapseArtSize * artScale);
 
             if (playing)
             {
@@ -152,10 +182,24 @@ namespace DynamicWin.UI.Menu.Menus
 
                     if (!ReferenceEquals(art, shownArtBitmap))
                     {
-                        // Only dispose our own copy, never the Res.Spotify placeholder.
-                        shownArtBitmap?.Dispose();
-                        shownArtBitmap = art;
-                        collapseArt.Image = art ?? Res.Spotify;
+                        if (art != null)
+                        {
+                            // Only dispose our own copy, never the Res.Spotify placeholder.
+                            shownArtBitmap?.Dispose();
+                            shownArtBitmap = art;
+                            collapseArt.Image = art;
+
+                            // New cover during playback: pop it in instead of
+                            // hard-cutting between two unrelated images.
+                            if (reveal > 0.5f) artSwapAnim = 0f;
+                        }
+                        else if (shownArtBitmap == null)
+                        {
+                            // First track without artwork: show the placeholder.
+                            collapseArt.Image = Res.Spotify;
+                        }
+                        // If artwork briefly disappears between tracks, keep
+                        // the previous cover until the new fetch lands.
                     }
                 }
             }

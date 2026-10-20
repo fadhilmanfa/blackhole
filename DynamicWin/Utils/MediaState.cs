@@ -2,6 +2,7 @@ using NAudio.Wave;
 using SkiaSharp;
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Windows.Media.Control;
 
@@ -22,7 +23,15 @@ namespace DynamicWin.Utils
         private static string artist = "";
         private static SKBitmap? albumArt;
         private static string artKey = "";
+        private static string artHash = "";
         private static int artVersion;
+
+        // Same-track artwork is re-read occasionally: browsers publish the
+        // media session before the real thumbnail is ready, so the first
+        // fetch often lands on a placeholder or the browser icon.
+        private static string lastArtAttemptKey = "";
+        private static long lastArtCheckMs;
+        private const int ArtRecheckMs = 2000;
 
         // Palette derived from the current cover; null means "no art" and
         // the UI falls back to the active theme colours.
@@ -122,31 +131,38 @@ namespace DynamicWin.Utils
         private static async Task PollOnce()
         {
             bool smtcPlaying = false;
+            bool hasSmtcSession = false;
             string newTitle = "";
             string newArtist = "";
             string newArtKey = "";
+            GlobalSystemMediaTransportControlsSessionMediaProperties? mediaProps = null;
 
             try
             {
                 var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                var session = manager.GetCurrentSession();
+                var session = PickSession(manager);
                 if (session != null)
                 {
+                    hasSmtcSession = true;
                     var status = session.GetPlaybackInfo()?.PlaybackStatus;
                     smtcPlaying = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                     if (smtcPlaying || status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
                     {
-                        var props = await session.TryGetMediaPropertiesAsync();
-                        if (props != null)
+                        mediaProps = await session.TryGetMediaPropertiesAsync();
+                        if (mediaProps != null)
                         {
-                            newTitle = props.Title ?? "";
-                            newArtist = props.Artist ?? "";
-                            newArtKey = newTitle + "\n" + newArtist;
+                            newTitle = mediaProps.Title ?? "";
+                            newArtist = mediaProps.Artist ?? "";
+                            newArtKey = BuildKey(newTitle, newArtist);
                         }
                     }
                 }
             }
-            catch { smtcPlaying = false; }
+            catch
+            {
+                smtcPlaying = false;
+                mediaProps = null;
+            }
 
             bool audioActive;
             lock (stateLock)
@@ -182,32 +198,49 @@ namespace DynamicWin.Utils
                     }
                 }
 
-                if (isPlaying)
+                if (isPlaying && newArtKey != "")
                 {
                     title = newTitle;
                     artist = newArtist;
 
-                    // New or unknown track: drop stale art so the UI falls
-                    // back to the placeholder until the new fetch lands.
+                    // New or unknown track: drop stale art so the UI stops
+                    // showing the previous cover. The palette follows the art.
                     if (artKey != newArtKey && albumArt != null)
                     {
                         albumArt.Dispose();
                         albumArt = null;
+                        artHash = "";
                         artVersion++;
 
-                        // Clear the palette with the art so accents never
-                        // outlive the cover they came from.
                         accentPrimary = null;
                         accentSecondary = null;
                         accentVersion++;
                     }
                 }
+                else if (isPlaying && !hasSmtcSession)
+                {
+                    // Audio-only playback (game, app without SMTC): don't
+                    // keep showing metadata from a player that already left.
+                    title = "";
+                    artist = "";
+                }
             }
 
-            // Refetch only when the art we have does not match the current
-            // track yet (covers both the first fetch and track changes).
-            if (IsPlaying && newArtKey != "" && newArtKey != artKey)
-                await RefreshArtAsync(newArtKey);
+            // Fetch the cover right away on a track change, then re-check
+            // the same track at a slower cadence: browsers (Chrome/YouTube)
+            // publish the media session before the real thumbnail exists, so
+            // the first fetch can land on a placeholder or browser icon.
+            if (IsPlaying && newArtKey != "" && mediaProps?.Thumbnail != null)
+            {
+                long now = Environment.TickCount64;
+                bool newTrack = newArtKey != lastArtAttemptKey;
+                if (newTrack || now - lastArtCheckMs >= ArtRecheckMs)
+                {
+                    lastArtCheckMs = now;
+                    lastArtAttemptKey = newArtKey;
+                    await RefreshArtAsync(newArtKey, mediaProps);
+                }
+            }
 
             if (becameIdle)
             {
@@ -219,60 +252,126 @@ namespace DynamicWin.Utils
             }
         }
 
-        private static async Task RefreshArtAsync(string key)
+        /// <summary>
+        /// Picks the session that is actually playing. Browsers can expose
+        /// several sessions (one per tab or window) and GetCurrentSession()
+        /// is not guaranteed to be the one producing audio.
+        /// </summary>
+        private static GlobalSystemMediaTransportControlsSession? PickSession(
+            GlobalSystemMediaTransportControlsSessionManager manager)
         {
-            SKBitmap? art = null;
             try
             {
-                var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                var session = manager.GetCurrentSession();
-                if (session != null)
+                var sessions = manager.GetSessions();
+                var current = manager.GetCurrentSession();
+
+                // The session Windows considers current is usually the right
+                // one; trust it while it is playing.
+                if (current != null &&
+                    current.GetPlaybackInfo()?.PlaybackStatus ==
+                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    return current;
+
+                // Otherwise look for another session that is playing. This
+                // covers browsers exposing several tab sessions where the
+                // OS-current one sits paused while another tab plays.
+                foreach (var session in sessions)
                 {
-                    var props = await session.TryGetMediaPropertiesAsync();
-                    var thumbRef = props?.Thumbnail;
-                    if (thumbRef != null)
-                    {
-                        using var stream = await thumbRef.OpenReadAsync();
-                        using var input = stream.AsStreamForRead();
-                        using var ms = new MemoryStream();
-                        await input.CopyToAsync(ms);
-                        art = SKBitmap.Decode(ms.ToArray());
-                    }
+                    if (session.GetPlaybackInfo()?.PlaybackStatus ==
+                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                        return session;
                 }
+
+                if (current != null) return current;
+                if (sessions.Count > 0) return sessions[0];
+            }
+            catch { }
+
+            return manager.GetCurrentSession();
+        }
+
+        /// <summary>
+        /// Track identity used to decide when artwork belongs to a new song.
+        /// Returns "" when the session has no usable metadata at all.
+        /// </summary>
+        private static string BuildKey(string newTitle, string newArtist)
+        {
+            if (string.IsNullOrWhiteSpace(newTitle) && string.IsNullOrWhiteSpace(newArtist))
+                return "";
+
+            return newTitle + "\n" + newArtist;
+        }
+
+        /// <summary>
+        /// Reads the artwork carried by the given media-properties snapshot
+        /// and publishes it when the bytes differ from the cover on screen.
+        /// Hash comparison makes the periodic re-check cheap and prevents
+        /// re-triggering the UI crossfade for an unchanged image.
+        /// </summary>
+        private static async Task RefreshArtAsync(
+            string key,
+            GlobalSystemMediaTransportControlsSessionMediaProperties props)
+        {
+            byte[] bytes;
+            try
+            {
+                using var stream = await props.Thumbnail.OpenReadAsync();
+                using var input = stream.AsStreamForRead();
+                using var ms = new MemoryStream();
+                await input.CopyToAsync(ms);
+                bytes = ms.ToArray();
             }
             catch (Exception e)
             {
-                art = null;
+                // Transient: the session may have moved on while opening the
+                // stream. The next poll retries.
                 System.Diagnostics.Debug.WriteLine("Album art load failed: " + e.Message);
+                return;
             }
 
-            // Extract outside the lock: sampling is CPU work and must not
-            // stall UI threads that read IsPlaying/Title every frame.
-            var palette = art == null ? null : AlbumArtColor.Extract(art);
+            string hash = Convert.ToHexString(SHA256.HashData(bytes));
 
             lock (stateLock)
             {
-                // Drop the fetch if the track already changed again.
-                string currentKey = title + "\n" + artist;
-                if (key != "" && key != currentKey && currentKey != "")
+                if (albumArt != null && key == artKey && hash == artHash)
+                    return;
+            }
+
+            SKBitmap? art = null;
+            try
+            {
+                art = SKBitmap.Decode(bytes);
+            }
+            catch (Exception e)
+            {
+                System.Diagnostics.Debug.WriteLine("Album art decode failed: " + e.Message);
+            }
+
+            if (art == null) return;
+
+            // Extract outside the lock: sampling is CPU work and must not
+            // stall UI threads that read IsPlaying/Title every frame.
+            var palette = AlbumArtColor.Extract(art);
+
+            lock (stateLock)
+            {
+                if (albumArt != null && key == artKey && hash == artHash)
                 {
-                    art?.Dispose();
+                    art.Dispose();
                     return;
                 }
 
-                // Publish the new bitmap (or the lack of one) and only mark the
-                // key when it succeeded, so failed loads are retried next poll.
-                if (!ReferenceEquals(albumArt, art))
-                {
-                    albumArt?.Dispose();
-                    albumArt = art;
-                    artVersion++;
+                // Publish the new bitmap and only then mark the key, so a
+                // failed decode above is retried instead of silently cached.
+                albumArt?.Dispose();
+                albumArt = art;
+                artKey = key;
+                artHash = hash;
+                artVersion++;
 
-                    accentPrimary = palette?.primary;
-                    accentSecondary = palette?.secondary;
-                    accentVersion++;
-                }
-                artKey = art == null ? "" : key;
+                accentPrimary = palette?.primary;
+                accentSecondary = palette?.secondary;
+                accentVersion++;
             }
         }
     }

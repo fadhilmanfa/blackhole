@@ -111,6 +111,9 @@
     <None Update="Resources\icons\playback\PlayPause.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Resources\icons\playback\Pause.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="Resources\icons\playback\Previous.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
