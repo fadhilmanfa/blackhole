@@ -1,46 +1,92 @@
 ﻿using DynamicWin.Main;
 using DynamicWin.Resources;
 using DynamicWin.UI.UIElements;
-using DynamicWin.UI.UIElements.Custom;
 using DynamicWin.Utils;
-using Newtonsoft.Json.Linq;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Navigation;
-using System.Xml.Linq;
 using static DynamicWin.UI.UIElements.IslandObject;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace DynamicWin.UI.Menu.Menus
 {
     public class SettingsMenu : BaseMenu
     {
+        const float SidePadding = 24f;
+        const float ContentTop = 20f;
+        const float FooterHeight = 82f;
+        const float BottomPadding = 18f;
+
+        const float SectionHeaderHeight = 22f;
+        const float FieldLabelHeight = 15f;
+        const float ControlHeight = 28f;
+        const float CheckboxRowHeight = 30f;
+        const float CheckboxSize = 24f;
+        const float ColumnGap = 16f;
+
+        const float SaveButtonWidth = 240f;
+        const float SaveButtonHeight = 38f;
+
+        readonly Action<MouseWheelEventArgs> scrollHandler;
+        bool scrollSubscribed = true;
+
+        float yScrollOffset;
+        float ySmoothScroll;
+        float contentHeight;
+        float scrollRange;
+
+        readonly List<SettingsRow> rows = new List<SettingsRow>();
+
+        Checkbox allowBlur;
+        Checkbox allowAnimation;
+        Checkbox antiAliasing;
+        Checkbox runOnStartup;
+        Checkbox volumePopup;
+        Checkbox brightnessPopup;
+
+        UIObject topMask;
+        UIObject footerBackground;
+        UIObject footerDivider;
+        UIObject scrollThumb;
+        DWTextButton saveButton;
+
+        bool changedTheme;
 
         public SettingsMenu()
         {
-            MainForm.onScrollEvent += (MouseWheelEventArgs x) => 
+            scrollHandler = (MouseWheelEventArgs x) =>
             {
                 yScrollOffset += x.Delta * 0.25f;
             };
+
+            MainForm.onScrollEvent += scrollHandler;
         }
 
-        bool changedTheme = false;
+        void UnsubscribeScroll()
+        {
+            if (!scrollSubscribed) return;
+
+            MainForm.onScrollEvent -= scrollHandler;
+            scrollSubscribed = false;
+        }
 
         void SaveAndBack()
         {
+            UnsubscribeScroll();
+
             Settings.AllowBlur = allowBlur.IsChecked;
             Settings.AllowAnimation = allowAnimation.IsChecked;
             Settings.AntiAliasing = antiAliasing.IsChecked;
             Settings.RunOnStartup = runOnStartup.IsChecked;
 
+            PopupOptions.saveData.volumePopup = volumePopup.IsChecked;
+            PopupOptions.saveData.brightnessPopup = brightnessPopup.IsChecked;
+
             DynamicWinMain.UpdateStartup();
+
+            new PopupOptions().SaveSettings();
+            Settings.Save();
 
             if (changedTheme)
                 Theme.Instance.UpdateTheme(true);
@@ -49,225 +95,331 @@ namespace DynamicWin.UI.Menu.Menus
                 Res.HomeMenu = new HomeMenu();
                 MenuManager.OpenMenu(Res.HomeMenu);
             }
-
-            new PopupOptions().SaveSettings();
-
-            Settings.Save();
         }
-
-        Checkbox allowBlur;
-        Checkbox allowAnimation;
-        Checkbox antiAliasing;
-        Checkbox runOnStartup;
 
         public override List<UIObject> InitializeMenu(IslandObject island)
         {
             var objects = base.InitializeMenu(island);
 
+            rows.Clear();
+            yScrollOffset = 0f;
+            ySmoothScroll = 0f;
+            changedTheme = false;
+
             new PopupOptions().LoadSettings();
 
-            var generalTitle = new DWText(island, "General", new Vec2(25, 0), UIAlignment.TopLeft);
-            generalTitle.Font = Res.InterBold;
-            generalTitle.Anchor.X = 0;
-            objects.Add(generalTitle);
+            float contentWidth = IslandSize().X - SidePadding * 2f;
+            float columnWidth = (contentWidth - ColumnGap) / 2f;
+            float secondColumn = columnWidth + ColumnGap;
 
+            // General -------------------------------------------------------
+
+            AddSectionHeader(objects, island, "General", 0f);
+
+            AddLabelPair(objects, island, "Island Mode", "Selected Monitor", 12f, 0f, secondColumn);
+
+            var islandModes = new string[] { "Island", "Notch" };
+            var islandMode = new MultiSelectionButton(island, islandModes, Vec2.zero, new Vec2(columnWidth, ControlHeight), UIAlignment.TopLeft, 2);
+            islandMode.Anchor = Vec2.zero;
+            islandMode.SelectedIndex = (Settings.IslandMode == IslandObject.IslandMode.Island) ? 0 : 1;
+            islandMode.onClick += (index) =>
             {
-                var islandModesTitle = new DWText(island, "Island Mode", new Vec2(25, 0), UIAlignment.TopLeft);
-                islandModesTitle.Font = Res.InterRegular;
-                islandModesTitle.Color = Theme.TextSecond;
-                islandModesTitle.TextSize = 15;
-                islandModesTitle.Anchor.X = 0;
-                objects.Add(islandModesTitle);
-
-                var islandModes = new string[] { "Island", "Notch" };
-                var islandMode = new MultiSelectionButton(island, islandModes, new Vec2(25, 0), new Vec2(IslandSize().X - 50, 25), UIAlignment.TopLeft);
-                islandMode.SelectedIndex = (Settings.IslandMode == IslandObject.IslandMode.Island) ? 0 : 1;
-                islandMode.Anchor.X = 0;
-                islandMode.onClick += (index) =>
-                {
-                    Settings.IslandMode = (index == 0) ? IslandObject.IslandMode.Island : IslandObject.IslandMode.Notch;
-                };
-                objects.Add(islandMode);
-            }
-
-            allowBlur = new Checkbox(island, "Toggle blur", new Vec2(25, 0), new Vec2(25, 25), () => { }, UIAlignment.TopLeft);
-            allowBlur.IsChecked = Settings.AllowBlur;
-            allowBlur.Anchor.X = 0;
-            objects.Add(allowBlur);
-
-            allowAnimation = new Checkbox(island, "Toggle animations", new Vec2(25, 0), new Vec2(25, 25), () => { }, UIAlignment.TopLeft);
-            allowAnimation.IsChecked = Settings.AllowAnimation;
-            allowAnimation.Anchor.X = 0;
-            objects.Add(allowAnimation);
-
-            antiAliasing = new Checkbox(island, "Toggle anti-aliasing", new Vec2(25, 0), new Vec2(25, 25), () => { }, UIAlignment.TopLeft);
-            antiAliasing.IsChecked = Settings.AntiAliasing;
-            antiAliasing.Anchor.X = 0;
-            objects.Add(antiAliasing);
-
-            runOnStartup = new Checkbox(island, "Start application on login", new Vec2(25, 0), new Vec2(25, 25), () => { }, UIAlignment.TopLeft);
-            runOnStartup.IsChecked = Settings.RunOnStartup;
-            runOnStartup.Anchor.X = 0;
-            objects.Add(runOnStartup);
-
-
-            {
-                var selectedMonitorTitle = new DWText(island, "Selected Monitor", new Vec2(25, 0), UIAlignment.TopLeft);
-                selectedMonitorTitle.Font = Res.InterRegular;
-                selectedMonitorTitle.TextSize = 15;
-                selectedMonitorTitle.Anchor.X = 0;
-                objects.Add(selectedMonitorTitle);
-
-                var selectedMonitors = new string[MainForm.GetMonitorCount()];
-                for(int i = 0; i < selectedMonitors.Length; i++)
-                {
-                    if (i == 0) selectedMonitors[i] = "Primary";
-                    else selectedMonitors[i] = "Monitor " + i;
-                }
-
-                var selectedMonitor = new MultiSelectionButton(island, selectedMonitors, new Vec2(25, 0), new Vec2(IslandSize().X - 50, 25), UIAlignment.TopLeft);
-                selectedMonitor.SelectedIndex = Math.Clamp(Settings.ScreenIndex, 0, MainForm.GetMonitorCount() - 1);
-                selectedMonitor.Anchor.X = 0;
-                selectedMonitor.onClick += (index) =>
-                {
-                    Settings.ScreenIndex = index;
-                    MainForm.Instance.SetMonitor(Settings.ScreenIndex);
-                };
-                objects.Add(selectedMonitor);
-            }
-
-            {
-                var themeTitle = new DWText(island, "Themes", new Vec2(25, 0), UIAlignment.TopLeft);
-                themeTitle.Font = Res.InterRegular;
-                themeTitle.TextSize = 15;
-                themeTitle.Anchor.X = 0;
-                objects.Add(themeTitle);
-
-                var themeOptions = new string[] { "Custom", "Dark", "Light", "Candy", "Forest Dawn", "Sunset Glow" };
-                var theme = new MultiSelectionButton(island, themeOptions, new Vec2(25, 0), new Vec2(IslandSize().X - 50, 25), UIAlignment.TopLeft);
-                theme.SelectedIndex = Settings.Theme + 1;
-                theme.Anchor.X = 0;
-                theme.onClick += (index) =>
-                {
-                    Settings.Theme = index - 1;
-                    changedTheme = true;
-                };
-                objects.Add(theme);
-            }
-
-            AddSettingSection(objects, island, "Pop-up Options", new PopupOptions().SettingsObjects());
-
-            objects.Add(new DWText(island, "Software version: " + DynamicWinMain.Version, new Vec2(25, 0), UIAlignment.TopLeft)
-            {
-                Color = Theme.TextThird,
-                Anchor = new Vec2(0, 0.5f),
-                TextSize = 15
-            });
-
-            objects.Add(new DWText(island, "Made by Florian Butz with ♡", new Vec2(25, 0), UIAlignment.TopLeft)
-            {
-                Color = Theme.TextThird,
-                Anchor = new Vec2(0, 0.5f),
-                TextSize = 15
-            });
-
-            objects.Add(new DWText(island, "Maintained and developed by 59xa", new Vec2(25, 0), UIAlignment.TopLeft)
-            {
-                Color = Theme.TextThird,
-                Anchor = new Vec2(0, 0.5f),
-                TextSize = 12,
-                Font = Resources.Res.InterBold
-            });
-
-            objects.Add(new DWText(island, "Licenced under the CC BY-SA 4.0 licence.", new Vec2(25, 0), UIAlignment.TopLeft)
-            {
-                Color = Theme.TextThird,
-                Anchor = new Vec2(0, 0.5f),
-                TextSize = 15
-            });
-
-            var backBtn = new DWTextButton(island, "Save changes", new Vec2(0, -45), new Vec2(250, 40), () => { SaveAndBack(); }, UIAlignment.BottomCenter)
-            {
-                roundRadius = 25
+                Settings.IslandMode = (index == 0) ? IslandObject.IslandMode.Island : IslandObject.IslandMode.Notch;
             };
-            backBtn.Text.Font = Resources.Res.InterBold;
 
-            bottomMask = new UIObject(island, Vec2.zero, new Vec2(IslandSizeBig().X - 225, 175), UIAlignment.BottomCenter)
+            var selectedMonitors = new string[MainForm.GetMonitorCount()];
+            for (int i = 0; i < selectedMonitors.Length; i++)
+                selectedMonitors[i] = (i == 0) ? "Primary" : "Monitor " + i;
+
+            var selectedMonitor = new MultiSelectionButton(island, selectedMonitors, Vec2.zero, new Vec2(columnWidth, ControlHeight), UIAlignment.TopLeft, 2);
+            selectedMonitor.Anchor = Vec2.zero;
+            selectedMonitor.SelectedIndex = Math.Clamp(Settings.ScreenIndex, 0, MainForm.GetMonitorCount() - 1);
+            selectedMonitor.onClick += (index) =>
+            {
+                Settings.ScreenIndex = index;
+                MainForm.Instance.SetMonitor(Settings.ScreenIndex);
+            };
+
+            AddRow(objects, Math.Max(islandMode.Size.Y, selectedMonitor.Size.Y), 6f,
+                new SettingsRowItem(islandMode, 0f, 0f),
+                new SettingsRowItem(selectedMonitor, secondColumn, 0f));
+
+            AddLabelRow(objects, island, "Themes", 14f);
+
+            var themeOptions = new string[] { "Custom", "Dark", "Light", "Candy", "Forest Dawn", "Sunset Glow" };
+            var theme = new MultiSelectionButton(island, themeOptions, Vec2.zero, new Vec2(contentWidth, ControlHeight), UIAlignment.TopLeft, 3);
+            theme.Anchor = Vec2.zero;
+            theme.SelectedIndex = Settings.Theme + 1;
+            theme.onClick += (index) =>
+            {
+                Settings.Theme = index - 1;
+                changedTheme = true;
+            };
+
+            AddRow(objects, theme.Size.Y, 6f, new SettingsRowItem(theme, 0f, 0f));
+
+            AddDivider(objects, island, contentWidth, 20f);
+
+            // Behavior ------------------------------------------------------
+
+            AddSectionHeader(objects, island, "Behavior", 16f);
+
+            allowBlur = CreateCheckbox(island, "Blur", Settings.AllowBlur, columnWidth);
+            allowAnimation = CreateCheckbox(island, "Animations", Settings.AllowAnimation, columnWidth);
+            antiAliasing = CreateCheckbox(island, "Anti-aliasing", Settings.AntiAliasing, columnWidth);
+            runOnStartup = CreateCheckbox(island, "Start on login", Settings.RunOnStartup, columnWidth);
+
+            AddRow(objects, CheckboxRowHeight, 12f,
+                CheckboxItem(allowBlur, 0f),
+                CheckboxItem(allowAnimation, secondColumn));
+            AddRow(objects, CheckboxRowHeight, 8f,
+                CheckboxItem(antiAliasing, 0f),
+                CheckboxItem(runOnStartup, secondColumn));
+
+            AddDivider(objects, island, contentWidth, 20f);
+
+            // Pop-up options -----------------------------------------------
+
+            AddSectionHeader(objects, island, "Pop-up Options", 16f);
+
+            volumePopup = CreateCheckbox(island, "Volume pop-up", PopupOptions.saveData.volumePopup, columnWidth);
+            brightnessPopup = CreateCheckbox(island, "Brightness pop-up", PopupOptions.saveData.brightnessPopup, columnWidth);
+
+            AddRow(objects, CheckboxRowHeight, 12f,
+                CheckboxItem(volumePopup, 0f),
+                CheckboxItem(brightnessPopup, secondColumn));
+
+            AddDivider(objects, island, contentWidth, 20f);
+
+            // About ---------------------------------------------------------
+
+            AddSectionHeader(objects, island, "About", 16f);
+            AddTextRow(objects, island, "Software version: " + DynamicWinMain.Version, 8f);
+            AddTextRow(objects, island, "Made by Florian Butz with ♡", 2f);
+            AddTextRow(objects, island, "Maintained and developed by 59xa", 2f);
+            AddTextRow(objects, island, "Licensed under the CC BY-SA 4.0 license.", 2f);
+
+            contentHeight = BottomPadding;
+            foreach (var row in rows)
+                contentHeight += row.GapBefore + row.Height;
+
+            // Fixed chrome --------------------------------------------------
+
+            float menuWidth = IslandSize().X;
+
+            topMask = new UIObject(island, Vec2.zero, new Vec2(menuWidth, ContentTop), UIAlignment.TopLeft)
             {
                 Color = Theme.IslandBackground,
-                roundRadius = 50
+                roundRadius = 0f
             };
+            topMask.Anchor = Vec2.zero;
+            objects.Add(topMask);
 
-            objects.Add(bottomMask);
-            objects.Add(backBtn);
+            footerBackground = new UIObject(island, Vec2.zero, new Vec2(menuWidth, FooterHeight), UIAlignment.TopLeft)
+            {
+                Color = Theme.IslandBackground,
+                roundRadius = 0f
+            };
+            footerBackground.Anchor = Vec2.zero;
+            objects.Add(footerBackground);
+
+            footerDivider = new UIObject(island, Vec2.zero, new Vec2(menuWidth, 1f), UIAlignment.TopLeft)
+            {
+                Color = Theme.TextThird.Override(a: 0.3f),
+                roundRadius = 0f
+            };
+            footerDivider.Anchor = Vec2.zero;
+            objects.Add(footerDivider);
+
+            saveButton = new DWTextButton(island, "Save changes", Vec2.zero, new Vec2(SaveButtonWidth, SaveButtonHeight), SaveAndBack, UIAlignment.TopLeft)
+            {
+                roundRadius = 12f,
+                normalColor = Theme.Primary.Override(a: 0.9f),
+                hoverColor = Theme.Primary,
+                clickColor = Theme.Primary.Override(a: 0.7f),
+                hoverScaleMulti = new Vec2(1.02f, 1.02f)
+            };
+            saveButton.Anchor = Vec2.zero;
+            saveButton.normalTextSize = 14f;
+            saveButton.Text.Font = Res.InterBold;
+            saveButton.Text.Color = Theme.TextMain;
+            objects.Add(saveButton);
+
+            scrollThumb = new UIObject(island, Vec2.zero, new Vec2(3f, 50f), UIAlignment.TopLeft)
+            {
+                Color = Theme.TextThird.Override(a: 0.6f),
+                roundRadius = 2f
+            };
+            scrollThumb.Anchor = Vec2.zero;
+            objects.Add(scrollThumb);
 
             return objects;
         }
 
-        void AddSettingSection(List<UIObject> objects, IslandObject island, string title, List<UIObject> items)
+        Checkbox CreateCheckbox(IslandObject island, string text, bool isChecked, float clickWidth)
         {
-            var wTitle = new DWText(island, title, new Vec2(25, 0), UIAlignment.TopLeft);
-            wTitle.Font = Res.InterRegular;
-            wTitle.TextSize = 15;
-            wTitle.Anchor.X = 0;
-            objects.Add(wTitle);
-
-            foreach (var optionItem in items)
-            {
-                optionItem.Parent = island;
-
-                if (optionItem.alignment == UIAlignment.TopLeft)
-                {
-                    optionItem.Position = new Vec2(25, 0);
-                    optionItem.Anchor.X = 0;
-                }
-
-                if (optionItem is DWText)
-                {
-                    ((DWText)optionItem).Color = Theme.TextThird;
-                    ((DWText)optionItem).Font = Res.InterRegular;
-                    ((DWText)optionItem).TextSize = 13;
-                }
-                else if (optionItem is Checkbox)
-                {
-                    optionItem.Size = new Vec2(25, 25);
-                }
-
-                objects.Add(optionItem);
-            }
+            var checkbox = new Checkbox(island, text, Vec2.zero, new Vec2(CheckboxSize, CheckboxSize), null, UIAlignment.TopLeft);
+            checkbox.Anchor = Vec2.zero;
+            checkbox.IsChecked = isChecked;
+            checkbox.Label.TextSize = 13f;
+            checkbox.Label.SetInkVerticalOffset();
+            checkbox.Label.Color = Theme.TextSecond;
+            checkbox.interactionWidth = clickWidth;
+            checkbox.expandInteractionRect = 2;
+            checkbox.roundRadius = 6f;
+            checkbox.normalColor = Theme.IconColor.Override(a: 0.10f);
+            checkbox.hoverColor = Theme.IconColor.Override(a: 0.18f);
+            checkbox.clickColor = Theme.IconColor.Override(a: 0.30f);
+            return checkbox;
         }
 
-        UIObject bottomMask;
+        SettingsRowItem CheckboxItem(Checkbox checkbox, float x)
+        {
+            return new SettingsRowItem(checkbox, x, (CheckboxRowHeight - CheckboxSize) / 2f);
+        }
 
-        float yScrollOffset = 0f;
-        float ySmoothScroll = 0f;
+        void AddSectionHeader(List<UIObject> objects, IslandObject island, string text, float gapBefore)
+        {
+            var label = CreateText(island, text, 16f, Theme.TextMain, Res.InterBold);
+            AddRow(objects, SectionHeaderHeight, gapBefore, new SettingsRowItem(label, 0f, InkOffset(label, SectionHeaderHeight)));
+        }
+
+        void AddLabelRow(List<UIObject> objects, IslandObject island, string text, float gapBefore)
+        {
+            var label = CreateText(island, text, 12f, Theme.TextSecond, Res.InterRegular);
+            AddRow(objects, FieldLabelHeight, gapBefore, new SettingsRowItem(label, 0f, InkOffset(label, FieldLabelHeight)));
+        }
+
+        void AddLabelPair(List<UIObject> objects, IslandObject island, string left, string right, float gapBefore, float leftX, float rightX)
+        {
+            var leftLabel = CreateText(island, left, 12f, Theme.TextSecond, Res.InterRegular);
+            var rightLabel = CreateText(island, right, 12f, Theme.TextSecond, Res.InterRegular);
+
+            AddRow(objects, FieldLabelHeight, gapBefore,
+                new SettingsRowItem(leftLabel, leftX, InkOffset(leftLabel, FieldLabelHeight)),
+                new SettingsRowItem(rightLabel, rightX, InkOffset(rightLabel, FieldLabelHeight)));
+        }
+
+        void AddTextRow(List<UIObject> objects, IslandObject island, string text, float gapBefore)
+        {
+            var label = CreateText(island, text, 12f, Theme.TextThird, Res.InterRegular);
+            AddRow(objects, 16f, gapBefore, new SettingsRowItem(label, 0f, InkOffset(label, 16f)));
+        }
+
+        void AddDivider(List<UIObject> objects, IslandObject island, float width, float gapBefore)
+        {
+            var divider = new UIObject(island, Vec2.zero, new Vec2(width, 1f), UIAlignment.TopLeft)
+            {
+                Color = Theme.TextThird.Override(a: 0.25f),
+                roundRadius = 0f
+            };
+
+            AddRow(objects, 1f, gapBefore, new SettingsRowItem(divider, 0f, 0f));
+        }
+
+        DWText CreateText(IslandObject island, string text, float textSize, Col color, SKTypeface font)
+        {
+            var label = new DWText(island, text, Vec2.zero, UIAlignment.TopLeft)
+            {
+                Font = font,
+                TextSize = textSize,
+                Color = color,
+                Anchor = Vec2.zero
+            };
+
+            label.Size = label.GetBoundsForString(text);
+            return label;
+        }
+
+        static float InkOffset(DWText label, float rowHeight)
+        {
+            float textHeight = label.GetBoundsForString(label.Text).Y;
+
+            using var paint = new SKPaint
+            {
+                Typeface = label.Font,
+                TextSize = label.TextSize
+            };
+
+            float ascent = -paint.FontMetrics.Ascent;
+            return (rowHeight - textHeight) / 2f + ascent;
+        }
+
+        void AddRow(List<UIObject> objects, float height, float gapBefore, params SettingsRowItem[] items)
+        {
+            var row = new SettingsRow
+            {
+                Height = height,
+                GapBefore = gapBefore
+            };
+
+            foreach (var item in items)
+            {
+                item.Object.alignment = UIAlignment.TopLeft;
+                item.Object.Anchor = Vec2.zero;
+
+                row.Items.Add(item);
+                objects.Add(item.Object);
+            }
+
+            rows.Add(row);
+        }
 
         public override void Update()
         {
             base.Update();
 
-            ySmoothScroll = Mathf.Lerp(ySmoothScroll,
-                yScrollOffset, 10f * RendererMain.Instance.DeltaTime);
+            float menuWidth = IslandSize().X;
+            float menuHeight = IslandSize().Y;
+            float contentBottom = menuHeight - FooterHeight;
+            float viewportHeight = contentBottom - ContentTop;
 
-            bottomMask.blurAmount = 15;
+            scrollRange = Math.Max(0f, contentHeight - viewportHeight);
+            yScrollOffset = Mathf.Clamp(yScrollOffset, -scrollRange, 0f);
+            ySmoothScroll = Mathf.Lerp(ySmoothScroll, yScrollOffset, 12f * RendererMain.Instance.DeltaTime);
 
-            var yScrollLim = 0f;
-            var yPos = 35f;
-            var spacing = 15f;
+            if (Math.Abs(ySmoothScroll - yScrollOffset) < 0.05f)
+                ySmoothScroll = yScrollOffset;
 
-            for(int i = 0; i < UiObjects.Count - 2; i++)
+            float y = ContentTop + ySmoothScroll;
+
+            foreach (var row in rows)
             {
-                var uiObject = UiObjects[i];
-                if (!uiObject.IsEnabled) continue;
+                y += row.GapBefore;
 
-                uiObject.LocalPosition.Y = yPos + ySmoothScroll;
-                yPos += uiObject.Size.Y + spacing;
+                bool hidden = (y + row.Height <= ContentTop) || (y >= contentBottom);
 
-                if (yPos > IslandSize().Y - 45) yScrollLim += uiObject.Size.Y + spacing;
+                foreach (var item in row.Items)
+                {
+                    item.Object.LocalPosition = new Vec2(SidePadding + item.X, y + item.YOffset);
+                    item.Object.SilentSetActive(!hidden);
+                }
+
+                y += row.Height;
             }
 
-            yScrollOffset = Mathf.Lerp(yScrollOffset,
-                Mathf.Clamp(yScrollOffset, -yScrollLim, 0f), 15f * RendererMain.Instance.DeltaTime);
+            float footerTop = menuHeight - FooterHeight;
+
+            topMask.LocalPosition = Vec2.zero;
+            footerBackground.LocalPosition = new Vec2(0f, footerTop);
+            footerDivider.LocalPosition = new Vec2(0f, footerTop);
+            saveButton.LocalPosition = new Vec2((menuWidth - SaveButtonWidth) / 2f, footerTop + (FooterHeight - SaveButtonHeight) / 2f);
+
+            if (scrollRange <= 0.5f)
+            {
+                scrollThumb.SilentSetActive(false);
+            }
+            else
+            {
+                scrollThumb.SilentSetActive(true);
+
+                float trackHeight = contentBottom - ContentTop;
+                float thumbHeight = Math.Max(36f, trackHeight * Mathf.Clamp(trackHeight / contentHeight, 0f, 1f));
+                float progress = -ySmoothScroll / scrollRange;
+
+                scrollThumb.Size = new Vec2(3f, thumbHeight);
+                scrollThumb.LocalPosition = new Vec2(menuWidth - 12f, ContentTop + (trackHeight - thumbHeight) * progress);
+            }
         }
 
         public override Vec2 IslandSize()
@@ -280,12 +432,39 @@ namespace DynamicWin.UI.Menu.Menus
             return IslandSize() + 5;
         }
 
-        // Border should only be rendered if on island mode instead of notch
         public override Col IslandBorderColor()
         {
-            IslandMode mode = Settings.IslandMode; // Reads either Island or Notch as value
+            IslandMode mode = Settings.IslandMode;
+
             if (mode == IslandMode.Island) return new Col(0.5f, 0.5f, 0.5f);
-            else return new Col(0, 0, 0, 0); // Render transparent if island mode is Notch
+            else return new Col(0, 0, 0, 0);
+        }
+
+        public override void OnDeload()
+        {
+            UnsubscribeScroll();
+            base.OnDeload();
+        }
+
+        class SettingsRow
+        {
+            public float Height;
+            public float GapBefore;
+            public readonly List<SettingsRowItem> Items = new List<SettingsRowItem>();
+        }
+
+        class SettingsRowItem
+        {
+            public readonly UIObject Object;
+            public readonly float X;
+            public readonly float YOffset;
+
+            public SettingsRowItem(UIObject obj, float x, float yOffset)
+            {
+                Object = obj;
+                X = x;
+                YOffset = yOffset;
+            }
         }
     }
 
@@ -293,6 +472,11 @@ namespace DynamicWin.UI.Menu.Menus
     {
         bool isChecked = false;
         public bool IsChecked { get { return isChecked; } set => SetChecked(value); }
+
+        public DWText Label { get; }
+
+        // Optional wider hit area so the whole label row can toggle the box.
+        public float interactionWidth = 0f;
 
         void SetChecked(bool isChecked)
         {
@@ -302,16 +486,26 @@ namespace DynamicWin.UI.Menu.Menus
 
         public Checkbox(UIObject? parent, string buttonText, Vec2 position, Vec2 size, Action clickCallback, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, Res.Check, position, size, clickCallback, alignment)
         {
-            var text = new DWText(this, buttonText, new Vec2(15, 0), UIAlignment.MiddleRight);
-            text.Color = Theme.TextSecond;
-            text.Anchor.X = 0;
-            text.TextSize = size.Y / 1.5f;
-            AddLocalObject(text);
+            Label = new DWText(this, buttonText, new Vec2(15, 0), UIAlignment.MiddleRight);
+            Label.Color = Theme.TextSecond;
+            Label.Anchor.X = 0;
+            Label.TextSize = size.Y / 1.5f;
+            Label.SetInkVerticalOffset();
+            AddLocalObject(Label);
 
             SetChecked(false);
 
-            hoverScaleMulti = new Vec2(1.05f, 1f);
-            clickScaleMulti = new Vec2(0.975f, 1f);
+            hoverScaleMulti = Vec2.one;
+            clickScaleMulti = Vec2.one;
+        }
+
+        public override SKRoundRect GetInteractionRect()
+        {
+            float width = interactionWidth > 0f ? interactionWidth : Size.X;
+            var rect = SKRect.Create((int)Position.X, (int)Position.Y, (int)width, (int)Size.Y);
+            var r = new SKRoundRect(rect, roundRadius);
+            r.Deflate(-expandInteractionRect, -expandInteractionRect);
+            return r;
         }
 
         public override void OnMouseUp()
@@ -331,39 +525,36 @@ namespace DynamicWin.UI.Menu.Menus
         int selectedIndex = 0;
         public int SelectedIndex { get => selectedIndex; set => SetSelected(value); }
 
-        public MultiSelectionButton(UIObject? parent, string[] options, Vec2 position, Vec2 size, UIAlignment alignment = UIAlignment.TopCenter, int maxInOneRow = 4) : base(parent, position, size, alignment)
+        public MultiSelectionButton(UIObject? parent, string[] options, Vec2 position, Vec2 size, UIAlignment alignment = UIAlignment.TopCenter, int maxInOneRow = 4, float rowHeight = 28f, float rowGap = 8f) : base(parent, position, size, alignment)
         {
             this.options = options;
             this.buttons = new DWTextButton[options.Length];
 
-            float xPos = 0;
-            float yPos = 0;
-            int counter = 0;
+            float itemWidth = (size.X - rowGap * (maxInOneRow - 1)) / maxInOneRow;
+            int rows = Math.Max(1, (int)Math.Ceiling(options.Length / (float)maxInOneRow));
 
-            for(int i = 0; i < options.Length; i++)
+            for (int i = 0; i < options.Length; i++)
             {
-                var lambdaIndex = i; // Either I'm going insane or I don't understand lambdas, but it seems like only the pointer given in to the OnClick() method. This is why this line is needed!
-                var action = () => { OnClick(lambdaIndex); }; // For some it just outputs the length of options if there is no seperate variable for it.
+                var lambdaIndex = i;
+                var action = () => { OnClick(lambdaIndex); };
 
-                if (counter >= maxInOneRow)
-                {
-                    counter = 0;
-                    yPos += 35;
-                    xPos = 0;
-                }
+                int row = i / maxInOneRow;
+                int column = i % maxInOneRow;
 
-                var btn = new DWTextButton(this, options[i], new Vec2(xPos, yPos), new Vec2(Math.Max(75, options[i].Length >= 11 ? (options[i].Length * 9) : 0), 25), action, UIAlignment.MiddleLeft);
+                var btn = new DWTextButton(this, options[i], new Vec2(column * (itemWidth + rowGap), row * (rowHeight + rowGap)), new Vec2(itemWidth, rowHeight), action, UIAlignment.TopLeft);
+                btn.Anchor = Vec2.zero;
+                btn.roundRadius = 7f;
+                btn.normalTextSize = 13f;
+                btn.hoverScaleMulti = new Vec2(1.02f, 1f);
+                btn.clickScaleMulti = new Vec2(0.99f, 1f);
                 btn.Text.Color = Theme.TextSecond;
-                btn.Anchor.X = 0;
+                btn.Text.TextSize = 13f;
                 buttons[i] = btn;
-                
-                AddLocalObject(btn);
 
-                xPos += btn.Size.X + 15;
-                counter++;
+                AddLocalObject(btn);
             }
 
-            Size.Y = Size.Y + yPos;
+            Size.Y = rows * rowHeight + (rows - 1) * rowGap;
 
             SelectedIndex = 0;
         }
@@ -374,21 +565,33 @@ namespace DynamicWin.UI.Menu.Menus
 
         void SetSelected(int index)
         {
-            selectedIndex = index;
+            if (buttons.Length == 0) return;
 
-            foreach (var button in buttons)
+            selectedIndex = Math.Clamp(index, 0, buttons.Length - 1);
+
+            for (int i = 0; i < buttons.Length; i++)
             {
-                button.normalColor = Theme.Secondary.Override(a: 0.9f);
-            }
+                var button = buttons[i];
+                bool selected = i == selectedIndex;
 
-            buttons[index].normalColor = (Theme.Primary * 0.65f).Override(a: 0.75f);
+                button.normalColor = selected
+                    ? Theme.Primary.Override(a: 0.85f)
+                    : Theme.IconColor.Override(a: 0.10f);
+                button.hoverColor = selected
+                    ? Theme.Primary.Override(a: 0.95f)
+                    : Theme.IconColor.Override(a: 0.18f);
+                button.clickColor = selected
+                    ? Theme.Primary.Override(a: 0.70f)
+                    : Theme.IconColor.Override(a: 0.30f);
+
+                button.Text.Color = selected ? Theme.TextMain : Theme.TextSecond;
+            }
         }
 
         void OnClick(int index)
         {
             SelectedIndex = index;
-
-            onClick.Invoke(index);
+            onClick?.Invoke(index);
         }
     }
 }

@@ -60,7 +60,7 @@ namespace DynamicWin.Utils
 
             brightness.clickCallback += () =>
             {
-                saveData.brightnessPopup = volume.IsChecked;
+                saveData.brightnessPopup = brightness.IsChecked;
             };
 
             brightness.IsChecked = saveData.brightnessPopup;

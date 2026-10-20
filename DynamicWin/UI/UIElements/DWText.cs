@@ -212,6 +212,17 @@ namespace DynamicWin.UI.UIElements
         }
 
         /// <summary>
+        /// Sets the baseline nudge (instead of adding to it) so the visible
+        /// glyphs are centred inside a centre/middle aligned parent. Safe to
+        /// call again after changing <see cref="TextSize"/>.
+        /// </summary>
+        public void SetInkVerticalOffset()
+        {
+            using var paint = new SKPaint { Typeface = font, TextSize = textSize };
+            LocalPosition.Y = -paint.FontMetrics.Ascent;
+        }
+
+        /// <summary>
         /// Positions this text so its visible glyphs are centered on
         /// <paramref name="center"/>. Ink starts at the draw origin and spans
         /// roughly the advance width, so centering on the advance (never on

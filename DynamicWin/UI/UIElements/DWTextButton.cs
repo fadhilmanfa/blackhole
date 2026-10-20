@@ -17,12 +17,15 @@ namespace DynamicWin.UI.UIElements
         public float normalTextSize = 14;
         public float textSizeSmoothSpeed = 15f;
 
+        float lastInkTextSize = -1f;
+
         public DWTextButton(UIObject? parent, string buttonText, Vec2 position, Vec2 size, Action clickCallback, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, position, size, clickCallback, alignment)
         {
             text = new DWText(this, buttonText, Vec2.zero, UIAlignment.Center);
             AddLocalObject(text);
 
             Text.TextSize = normalTextSize;
+            Text.SetInkVerticalOffset();
         }
 
         public override void Update(float deltaTime)
@@ -41,6 +44,12 @@ namespace DynamicWin.UI.UIElements
                 currentTextSize *= normalScaleMulti.Magnitude;
 
             Text.TextSize = Mathf.Lerp(Text.TextSize, currentTextSize, textSizeSmoothSpeed * deltaTime);
+
+            if (Math.Abs(Text.TextSize - lastInkTextSize) > 0.01f)
+            {
+                Text.SetInkVerticalOffset();
+                lastInkTextSize = Text.TextSize;
+            }
         }
     }
 }
