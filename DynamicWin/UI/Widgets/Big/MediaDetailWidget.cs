@@ -69,7 +69,9 @@ namespace DynamicWin.UI.Widgets.Big
             artistText.Anchor = new Vec2(0, 0);
             AddLocalObject(artistText);
 
-            prevBtn = new DWImageButton(this, Res.Previous, new Vec2(128, 92), new Vec2(28, 28), () => controller.Previous(), UIAlignment.TopLeft)
+            // Controls sit on the same left edge as the title (x=108) and a
+            // little higher, so the block reads as one left-aligned column.
+            prevBtn = new DWImageButton(this, Res.Previous, new Vec2(108, 84), new Vec2(28, 28), () => controller.Previous(), UIAlignment.TopLeft)
             {
                 roundRadius = 25,
                 normalColor = Col.Transparent,
@@ -80,7 +82,7 @@ namespace DynamicWin.UI.Widgets.Big
             prevBtn.Anchor = new Vec2(0, 0);
             AddLocalObject(prevBtn);
 
-            playBtn = new DWImageButton(this, Res.PlayPause, new Vec2(165, 91), new Vec2(30, 30), () => controller.PlayPause(), UIAlignment.TopLeft)
+            playBtn = new DWImageButton(this, Res.PlayPause, new Vec2(145, 83), new Vec2(30, 30), () => controller.PlayPause(), UIAlignment.TopLeft)
             {
                 roundRadius = 25,
                 normalColor = Col.Transparent,
@@ -91,7 +93,7 @@ namespace DynamicWin.UI.Widgets.Big
             playBtn.Anchor = new Vec2(0, 0);
             AddLocalObject(playBtn);
 
-            nextBtn = new DWImageButton(this, Res.Next, new Vec2(204, 92), new Vec2(28, 28), () => controller.Next(), UIAlignment.TopLeft)
+            nextBtn = new DWImageButton(this, Res.Next, new Vec2(184, 84), new Vec2(28, 28), () => controller.Next(), UIAlignment.TopLeft)
             {
                 roundRadius = 25,
                 normalColor = Col.Transparent,

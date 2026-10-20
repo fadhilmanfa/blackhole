@@ -20,9 +20,7 @@ namespace DynamicWin.UI.Menu.Menus
     {
         const float TrayHeight = 140f;
         const float CardBottomMargin = 8f;
-        const float CardTopMargin = 8f;
         const float CardTrayGap = 12f;
-        const float CardSideMargin = 8f;
 
         // Collapsed "playing" layout: album art + equalizer, centered as a
         // pair with a visible gap so the bars don't crowd the artwork.
@@ -32,11 +30,25 @@ namespace DynamicWin.UI.Menu.Menus
         const float CollapseArtX = -43f;
         const float CollapseEqX = 22f;
 
-        // Empty room above and below the album art. The island height is
-        // derived from the art size so the content never hugs the pill
-        // edge, while staying centered vertically.
-        const float CollapseContentPadding = 8f;
-        const float CollapseIslandHeight = CollapseArtSize + CollapseContentPadding * 2f;
+        // ── Island sizes ────────────────────────────────────────────────
+        // Every state declares its own size instead of inheriting one
+        // shared pill, so the idle ("diam") island and the music island
+        // can be tuned independently.
+        //
+        // Collapsed: keep the music height >= CollapseArtSize + 12 so the
+        // artwork still has breathing room (44 is the current comfort).
+        // Music pill is narrower than idle: content spans 114px (art -57..-29,
+        // EQ -13..+57), so 145 leaves ~15px of air on each side.
+        static readonly Vec2 IdleIslandSize = new Vec2(200, 44);
+        static readonly Vec2 MusicIslandSize = new Vec2(145, 44);
+
+        // Expanded: the tray is added on top when files are present.
+        // Width must stay >= the card width + 16 (280) or the now-playing
+        // card / calendar gets clipped by the island mask.
+        // Height = card height + 8 top + 8 bottom:
+        // idle calendar 208 + 16 = 224, music card 132 + 16 = 148.
+        static readonly Vec2 IdleExpandedSize = new Vec2(280, 224);
+        static readonly Vec2 MusicExpandedSize = new Vec2(280, 148);
 
         SmallVisualizerWidget eqWidget;
         DWImage collapseArt;
@@ -58,18 +70,17 @@ namespace DynamicWin.UI.Menu.Menus
 
         public override Vec2 IslandSize()
         {
-            // Idle and playing share the same compact pill size; idle simply
-            // has no content inside it.
-            return new Vec2(200, CollapseIslandHeight);
+            // Idle ("diam") and music have their own declared pill sizes.
+            return MediaState.IsPlaying ? MusicIslandSize : IdleIslandSize;
         }
 
         public override Vec2 IslandSizeBig()
         {
-            float cardW = Math.Max(calendarCard.GetWidgetSize().X, mediaCard.GetWidgetSize().X);
-            float cardH = MediaState.IsPlaying
-                ? mediaCard.GetWidgetSize().Y
-                : calendarCard.GetWidgetSize().Y;
-            return new Vec2(cardW + CardSideMargin * 2f, cardH + CurrentTrayHeight + CardBottomMargin + CurrentCardTrayGap + CardTopMargin);
+            var baseSize = MediaState.IsPlaying ? MusicExpandedSize : IdleExpandedSize;
+
+            // The tray grows the island downwards only while it holds files;
+            // the gap keeps the card from touching the tray icons.
+            return new Vec2(baseSize.X, baseSize.Y + CurrentTrayHeight + CurrentCardTrayGap);
         }
 
         public override List<UIObject> InitializeMenu(IslandObject island)
