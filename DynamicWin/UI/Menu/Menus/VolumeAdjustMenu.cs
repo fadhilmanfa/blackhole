@@ -51,6 +51,13 @@ namespace DynamicWin.UI.Menu.Menus
         bool wasVolumeUpDown;
         bool wasVolumeDownDown;
 
+        // Hover should take over the temporary volume pill without waiting
+        // for its timer; remember where the cursor was when it opened so a
+        // stationary cursor doesn't dismiss it by accident.
+        Vec2 cursorOnOpen;
+        bool wasHovering;
+        bool hoverCloseRequested;
+
         const float JellyPullStep = 15f;
         const float JellyMaxPull = 22f;
         const float JellyMaxSpeed = 600f;
@@ -67,6 +74,8 @@ namespace DynamicWin.UI.Menu.Menus
         {
             instance = this;
             timerUntilClose = 0f;
+            cursorOnOpen = RendererMain.CursorPosition;
+            wasHovering = RendererMain.Instance.MainIsland.IsHovering;
 
             // The key that opened the popup is still held; pull immediately
             // and seed the edge trackers so the first Update doesn't pull twice.
@@ -133,6 +142,17 @@ namespace DynamicWin.UI.Menu.Menus
             float dt = RendererMain.Instance.DeltaTime;
 
             if (timerUntilClose > 2.75f) MenuManager.CloseOverlay();
+
+            // A deliberate move onto the island asks for the normal hover
+            // menu; let the menu transition animate the volume pill out.
+            bool hovering = RendererMain.Instance.MainIsland.IsHovering;
+            if (!hoverCloseRequested && hovering && !wasHovering &&
+                Vec2.Distance(RendererMain.CursorPosition, cursorOnOpen) > 6f)
+            {
+                hoverCloseRequested = true;
+                MenuManager.CloseOverlay();
+            }
+            wasHovering = hovering;
 
             islandScale = Mathf.Lerp(islandScale, 1f, 5f * dt);
 
@@ -231,6 +251,13 @@ namespace DynamicWin.UI.Menu.Menus
         {
             // Overlay popups should not resize on hover.
             return IslandSize();
+        }
+
+        public override void OnDeload()
+        {
+            // The jelly drives the shared island position; never leave the
+            // pill nudged sideways when this overlay goes away.
+            RendererMain.Instance.MainIsland.LocalPosition.X = 0f;
         }
 
         public override Col IslandBorderColor()
