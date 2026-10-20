@@ -21,6 +21,23 @@ namespace DynamicWin.UI.UIElements
         private SKTypeface font;
         public SKTypeface Font { get => font; set => font = value; }
 
+        // Smooth "now playing" marquee. Off by default so existing labels
+        // keep rendering as plain text. When enabled and the text is wider
+        // than marqueeMaxWidth, it pauses at each end and glides between
+        // them (ping-pong) instead of a stiff constant scroll.
+        public bool marquee = false;
+        public float marqueeMaxWidth = 0f;
+
+        float marqueeElapsed;
+        float marqueeScroll;
+        const float MarqueePause = 1.6f;
+        const float MarqueeSpeed = 30f;
+
+        SKShader? marqueeShader;
+        SKColor marqueeShaderColor;
+        float marqueeShaderWidth;
+        bool marqueeShaderLeftFade;
+
         public Vec2 TextBounds
         {
             get
@@ -49,16 +66,129 @@ namespace DynamicWin.UI.UIElements
             // for layout. Ink starts at the draw origin and spans ~advance.
             float advance = paint.MeasureText(text);
             var fontMetrics = paint.FontMetrics;
-            Size = new Vec2(advance, fontMetrics.Descent - fontMetrics.Ascent);
-            textBounds = new Vec2(advance, fontMetrics.Descent - fontMetrics.Ascent);
+            float textHeight = fontMetrics.Descent - fontMetrics.Ascent;
+
+            bool scrolling = marquee && marqueeMaxWidth > 0f && advance > marqueeMaxWidth + 0.5f;
+
+            Size = new Vec2(scrolling ? marqueeMaxWidth : advance, textHeight);
+            textBounds = new Vec2(advance, textHeight);
 
             using var skFont = new SKFont(paint.Typeface, textSize);
             using var blob = SKTextBlob.Create(text, skFont);
 
-            if (blob != null)
-                canvas.DrawText(blob, Position.X, Position.Y, paint);
+            if (blob == null) return;
 
-            //canvas.DrawRoundRect(GetRect(), paint);
+            if (!scrolling)
+            {
+                canvas.DrawText(blob, Position.X, Position.Y, paint);
+                return;
+            }
+
+            // Clip to the slot, then fade the cut edges so glyphs dissolve
+            // into the card instead of being chopped in half.
+            float width = marqueeMaxWidth;
+            var clip = SKRect.Create(Position.X, Position.Y + fontMetrics.Ascent, width, textHeight);
+
+            float fade = Math.Min(10f, width * 0.2f);
+            float leftFade = marqueeScroll > 0.5f ? fade : 0f;
+
+            var color = Color.Value();
+
+            // Cache the gradient: it only depends on colour, slot width and
+            // whether the left edge is currently faded, not on scroll px.
+            bool hasLeftFade = leftFade > 0f;
+            if (marqueeShader == null || marqueeShaderColor != color ||
+                Math.Abs(marqueeShaderWidth - width) > 0.01f ||
+                marqueeShaderLeftFade != hasLeftFade)
+            {
+                marqueeShader?.Dispose();
+                marqueeShader = SKShader.CreateLinearGradient(
+                    new SKPoint(clip.Left, 0),
+                    new SKPoint(clip.Right, 0),
+                    new[]
+                    {
+                        color.WithAlpha(0),
+                        color,
+                        color,
+                        color.WithAlpha(0)
+                    },
+                    new[]
+                    {
+                        0f,
+                        Math.Min(leftFade / width, 0.49f),
+                        1f - Math.Min(fade / width, 0.49f),
+                        1f
+                    },
+                    SKShaderTileMode.Clamp);
+
+                marqueeShaderColor = color;
+                marqueeShaderWidth = width;
+                marqueeShaderLeftFade = hasLeftFade;
+            }
+
+            paint.Shader = marqueeShader;
+
+            int save = canvas.Save();
+            canvas.ClipRect(clip);
+            canvas.DrawText(blob, Position.X - marqueeScroll, Position.Y, paint);
+            canvas.RestoreToCount(save);
+        }
+
+        public override void Update(float deltaTime)
+        {
+            base.Update(deltaTime);
+
+            if (!marquee || marqueeMaxWidth <= 0f)
+            {
+                marqueeElapsed = 0f;
+                marqueeScroll = 0f;
+                return;
+            }
+
+            float textWidth = GetBoundsForString(text).X;
+            if (textWidth <= marqueeMaxWidth + 0.5f)
+            {
+                marqueeElapsed = 0f;
+                marqueeScroll = 0f;
+                return;
+            }
+
+            marqueeElapsed += deltaTime;
+            marqueeScroll = GetMarqueeOffset(textWidth);
+        }
+
+        float GetMarqueeOffset(float textWidth)
+        {
+            float distance = textWidth - marqueeMaxWidth;
+            float scrollTime = Mathf.Clamp(distance / MarqueeSpeed, 1.2f, 5.5f);
+            float cycle = (MarqueePause + scrollTime) * 2f;
+            float t = marqueeElapsed % cycle;
+
+            if (t < MarqueePause) return 0f;              // hold at the start
+            t -= MarqueePause;
+
+            if (t < scrollTime)                           // glide to the end
+                return distance * EaseInOutCubic(t / scrollTime);
+            t -= scrollTime;
+
+            if (t < MarqueePause) return distance;        // hold at the end
+            t -= MarqueePause;
+
+            return distance * (1f - EaseInOutCubic(Math.Min(t / scrollTime, 1f)));
+        }
+
+        static float EaseInOutCubic(float x)
+        {
+            return x < 0.5f
+                ? 4f * x * x * x
+                : 1f - (float)Math.Pow(-2f * x + 2f, 3f) / 2f;
+        }
+
+        public override void OnDestroy()
+        {
+            marqueeShader?.Dispose();
+            marqueeShader = null;
+            base.OnDestroy();
         }
 
         public Vec2 GetBoundsForString(string text)
@@ -100,6 +230,13 @@ namespace DynamicWin.UI.UIElements
         public void SilentSetText(string text)
         {
             this.text = text;
+            ResetMarquee();
+        }
+
+        void ResetMarquee()
+        {
+            marqueeElapsed = 0f;
+            marqueeScroll = 0f;
         }
 
         public void SetText(string text)
@@ -124,6 +261,7 @@ namespace DynamicWin.UI.UIElements
                 else
                 {
                     this.text = text;
+                    ResetMarquee();
 
                     float t = Easings.EaseOutQuint((x - 0.5f) * 2);
 
@@ -139,6 +277,7 @@ namespace DynamicWin.UI.UIElements
             {
                 this.text = text;
                 textSize = ogTextSize;
+                ResetMarquee();
                 DestroyLocalObject(changeTextAnim);
             };
         }

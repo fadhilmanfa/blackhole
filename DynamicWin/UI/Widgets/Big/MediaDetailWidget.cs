@@ -51,7 +51,9 @@ namespace DynamicWin.UI.Widgets.Big
             {
                 Font = Res.InterBold,
                 TextSize = 15,
-                Color = Theme.TextMain
+                Color = Theme.TextMain,
+                marquee = true,
+                marqueeMaxWidth = 144
             };
             titleText.Anchor = new Vec2(0, 0);
             AddLocalObject(titleText);
@@ -60,7 +62,9 @@ namespace DynamicWin.UI.Widgets.Big
             {
                 Font = Res.InterRegular,
                 TextSize = 12,
-                Color = Theme.TextThird
+                Color = Theme.TextThird,
+                marquee = true,
+                marqueeMaxWidth = 144
             };
             artistText.Anchor = new Vec2(0, 0);
             AddLocalObject(artistText);
@@ -112,8 +116,8 @@ namespace DynamicWin.UI.Widgets.Big
             string t = MediaState.Title;
             string a = MediaState.Artist;
 
-            titleText.SetText(string.IsNullOrEmpty(t) ? "Audio Playing" : DWText.Truncate(t, 22));
-            artistText.SetText(string.IsNullOrEmpty(a) ? "" : DWText.Truncate(a, 26));
+            titleText.SetText(string.IsNullOrEmpty(t) ? "Audio Playing" : t);
+            artistText.SetText(a ?? "");
 
             int version = MediaState.AlbumArtVersion;
             if (version != lastArtVersion)
