@@ -96,6 +96,7 @@ namespace DynamicWin
         {
             base.OnExit(e);
 
+            DynamicWin.Main.TopAppBar.Unregister();
             SaveManager.SaveAll();
 
             MainForm.Instance.DisposeTrayIcon();

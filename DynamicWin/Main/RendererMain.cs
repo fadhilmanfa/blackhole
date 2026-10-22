@@ -55,6 +55,7 @@ namespace DynamicWin.Main
 
             initialScreenBrightness = BrightnessAdjustMenu.GetBrightness();
             KeyHandler.onKeyDown += OnKeyRegistered;
+            KeyHandler.onKeyUp += OnKeyReleased;
 
             MainForm.Instance.DragEnter += MainForm.Instance.MainForm_DragEnter;
             MainForm.Instance.DragLeave += MainForm.Instance.MainForm_DragLeave;
@@ -76,6 +77,7 @@ namespace DynamicWin.Main
             // if (fallbackTimer != null) fallbackTimer.Stop();
 
             KeyHandler.onKeyDown -= OnKeyRegistered;
+            KeyHandler.onKeyUp -= OnKeyReleased;
             MainForm.Instance.DragEnter -= MainForm.Instance.MainForm_DragEnter;
             MainForm.Instance.DragLeave -= MainForm.Instance.MainForm_DragLeave;
             MainForm.Instance.MouseWheel -= MainForm.Instance.OnScroll;
@@ -89,11 +91,21 @@ namespace DynamicWin.Main
             Render();
         }
 
+        // Hide-toggle is armed on Ctrl+Win keydown only when those are the ONLY
+        // keys held, and fires on LWin release. Any other key in between
+        // (e.g. Arrow for virtual-desktop switching) disarms it.
+        private bool hideToggleArmed = false;
+
         private void OnKeyRegistered(Keys key, KeyModifier modifier)
         {
-            if (key == Keys.LWin && modifier.isCtrlDown)
+            if (key == Keys.LWin && modifier.isCtrlDown && IsOnlyCtrlWinDown())
             {
-                islandObject.hidden = !islandObject.hidden;
+                hideToggleArmed = true;
+            }
+            else if (hideToggleArmed && key != Keys.LWin
+                && key != Keys.LControlKey && key != Keys.RControlKey && key != Keys.RWin)
+            {
+                hideToggleArmed = false;
             }
 
             if ((key == Keys.VolumeDown || key == Keys.VolumeMute || key == Keys.VolumeUp) && PopupOptions.saveData.volumePopup)
@@ -107,6 +119,26 @@ namespace DynamicWin.Main
                     VolumeAdjustMenu.timerUntilClose = 0f;
                 }
             }
+        }
+
+        private void OnKeyReleased(Keys key)
+        {
+            if (hideToggleArmed && key == Keys.LWin)
+            {
+                hideToggleArmed = false;
+                islandObject.hidden = !islandObject.hidden;
+            }
+            else if (key == Keys.LControlKey || key == Keys.RControlKey)
+            {
+                hideToggleArmed = false;
+            }
+        }
+
+        private static bool IsOnlyCtrlWinDown()
+        {
+            var kd = KeyHandler.keyDown;
+            if (kd.Count != 2 || !kd.Contains(Keys.LWin)) return false;
+            return kd.Contains(Keys.LControlKey) || kd.Contains(Keys.RControlKey);
         }
 
         private void Update()

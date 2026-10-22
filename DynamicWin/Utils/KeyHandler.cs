@@ -38,6 +38,7 @@ namespace DynamicWin.Utils
 
         public static List<Keys> keyDown = new List<Keys>();
         public static Action<Keys, KeyModifier> onKeyDown;
+        public static Action<Keys> onKeyUp;
 
         private static IntPtr HookCallback(
             int nCode, IntPtr wParam, IntPtr lParam)
@@ -56,6 +57,7 @@ namespace DynamicWin.Utils
             else if(nCode >= 0 && wParam == (IntPtr)WM_KEYUP && keyDown.Contains((Keys)vkCode))
             {
                 keyDown.Remove((Keys)vkCode);
+                onKeyUp?.Invoke((Keys)vkCode);
             }
             return CallNextHookEx(_hookID, nCode, wParam, lParam);
         }

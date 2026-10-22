@@ -22,6 +22,9 @@ namespace DynamicWin.Main
 
         private readonly Forms.NotifyIcon _trayIcon;
 
+        private Forms.Screen? currentScreen;
+        private StripWindow? stripWindow;
+
         private DateTime _lastRenderTime;
         private readonly TimeSpan _targetElapsedTime = TimeSpan.FromMilliseconds(16); // ~60 FPS
 
@@ -66,6 +69,18 @@ namespace DynamicWin.Main
                 // Apply WS_EX_TOOLWINDOW and remove WS_EX_APPWINDOW if it exists
                 winStyle = (winStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
                 SetWindowLong(handle, GWL_EXSTYLE, winStyle);
+
+                stripWindow = new StripWindow();
+                stripWindow.MoveTo(currentScreen ?? Forms.Screen.PrimaryScreen!, StripWindow.StripHeightDip);
+                stripWindow.MainHandle = handle;
+                stripWindow.Show();
+
+                // Keep the main overlay above the strip so the island
+                // paints over the blurred bar.
+                this.Topmost = false;
+                this.Topmost = true;
+
+                TopAppBar.Register(this, currentScreen ?? Forms.Screen.PrimaryScreen!, StripReservePx());
             };
 
             SetMonitor(Settings.ScreenIndex);
@@ -96,6 +111,7 @@ namespace DynamicWin.Main
 
             _trayIcon.ContextMenuStrip.Items.Add("Exit", null, (x, y) =>
             {
+                TopAppBar.Unregister();
                 SaveManager.SaveAll();
                 Process.GetCurrentProcess().Kill();
             });
@@ -117,20 +133,49 @@ namespace DynamicWin.Main
                 this.WindowState = WindowState.Normal;
                 this.ResizeMode = ResizeMode.CanResize;
 
-                var workingArea = screen.WorkingArea;
+                // Full monitor bounds (not WorkingArea): the overlay must also
+                // cover the reserved AppBar strip at the top, otherwise the
+                // island would sit below it after re-registration.
+                var area = screen.Bounds;
 
-                this.Left = workingArea.Left;
-                this.Top = workingArea.Top;
-                this.Width = workingArea.Width;
-                this.Height = workingArea.Height;
+                this.Left = area.Left;
+                this.Top = area.Top;
+                this.Width = area.Width;
+                this.Height = area.Height;
 
                 this.ResizeMode = ResizeMode.NoResize;
+
+                currentScreen = screen;
+                stripWindow?.MoveTo(screen, StripWindow.StripHeightDip);
+                if (this.IsLoaded)
+                    TopAppBar.Register(this, screen, StripReservePx());
             }
         }
 
         public static int GetMonitorCount()
         {
             return System.Windows.Forms.Screen.AllScreens.Length;
+        }
+
+        int StripReservePx()
+        {
+            double dpi = 1.0;
+            try
+            {
+                var src = PresentationSource.FromVisual(this);
+                if (src?.CompositionTarget != null)
+                    dpi = src.CompositionTarget.TransformToDevice.M11;
+            }
+            catch { }
+            return Math.Max(1, (int)Math.Ceiling(StripWindow.StripHeightDip * dpi));
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            TopAppBar.Unregister();
+            try { stripWindow?.Close(); } catch { }
+            stripWindow = null;
+            base.OnClosed(e);
         }
 
         private void OnRendering(object? sender, EventArgs e)
@@ -161,6 +206,8 @@ namespace DynamicWin.Main
             parent.Children.Add(customControl);
 
             this.Content = parent;
+
+            stripWindow?.RefreshTint();
         }
 
         public void MainForm_DragEnter(object? sender, DragEventArgs e)
