@@ -77,6 +77,13 @@ namespace DynamicWin.UI.Menu.Menus
         const float MusicContentFadeSpeed = 9f;
         const float ArtSwapFadeSpeed = 12f;
 
+        // Playback events pop the island open for this long, then it
+        // contracts again unless the cursor is still hovering it.
+        const long AutoExpandMs = 5000;
+
+        long autoExpandUntil;
+        int lastAttentionVersion;
+
         float CurrentTrayHeight => tray != null && tray.HasFiles ? TrayHeight : 0f;
         float CurrentCardTrayGap => CurrentTrayHeight > 0 ? CardTrayGap : 0f;
         float CurrentCardY => -(CardBottomMargin + CurrentTrayHeight + CurrentCardTrayGap);
@@ -145,14 +152,37 @@ namespace DynamicWin.UI.Menu.Menus
         public override void Update()
         {
             bool hover = RendererMain.Instance.MainIsland.IsHovering;
-            bool mediaVisible = MediaState.IsMediaVisible;
 
             if (hover && !wasHovering)
                 tray.RefreshFiles();
             wasHovering = hover;
 
+            // Read the event counter before the media snapshot: if the poll
+            // lands between the two reads, the snapshot is fresh and the
+            // next frame still sees the new version instead of dropping it.
+            long now = Environment.TickCount64;
+            int attentionVersion = MediaState.AttentionVersion;
+            bool mediaVisible = MediaState.IsMediaVisible;
+
+            if (attentionVersion != lastAttentionVersion)
+            {
+                lastAttentionVersion = attentionVersion;
+
+                // Hold the island open only for events that happen while
+                // the home menu is actually on screen.
+                if (mediaVisible && !RendererMain.Instance.MainIsland.hidden)
+                    autoExpandUntil = now + AutoExpandMs;
+            }
+
+            if (!mediaVisible)
+                autoExpandUntil = 0;
+
+            bool autoExpanded = mediaVisible && now < autoExpandUntil;
+            bool expanded = hover || autoExpanded;
+            RendererMain.Instance.MainIsland.autoExpanded = autoExpanded;
+
             float dt = RendererMain.Instance.DeltaTime;
-            bool showMusic = !hover && mediaVisible;
+            bool showMusic = !expanded && mediaVisible;
 
             // Shared 0..1 progress for the collapsed cover + EQ pair.
             musicContentAnim = Mathf.Lerp(musicContentAnim, showMusic ? 1f : 0f, MusicContentFadeSpeed * dt);
@@ -208,9 +238,9 @@ namespace DynamicWin.UI.Menu.Menus
                 }
             }
 
-            calendarCard.SetActive(hover && !mediaVisible);
-            mediaCard.SetActive(hover && mediaVisible);
-            tray.SetActive(hover);
+            calendarCard.SetActive(expanded && !mediaVisible);
+            mediaCard.SetActive(expanded && mediaVisible);
+            tray.SetActive(expanded);
 
             float cardY = CurrentCardY;
             calendarCard.Position = new Vec2(0, cardY);
@@ -220,8 +250,19 @@ namespace DynamicWin.UI.Menu.Menus
             tray.Size = new Vec2(IslandSizeBig().X - 30, trayHeight);
         }
 
+        public override void OnLoad()
+        {
+            // Ignore attention events that happened while another menu was
+            // open, so returning home never pops the island on its own.
+            lastAttentionVersion = MediaState.AttentionVersion;
+            autoExpandUntil = 0;
+            base.OnLoad();
+        }
+
         public override void OnDeload()
         {
+            autoExpandUntil = 0;
+            RendererMain.Instance.MainIsland.autoExpanded = false;
             wasHovering = false;
             base.OnDeload();
         }

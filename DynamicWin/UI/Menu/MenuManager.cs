@@ -104,6 +104,7 @@ namespace DynamicWin.UI.Menu
 
             if (activeMenu != null) activeMenu.OnDeload();
             activeMenu = newActiveMenu;
+            activeMenu.OnLoad();
 
             menuAnimatorOut.onAnimationUpdate += (t) =>
             {

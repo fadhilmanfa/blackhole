@@ -15,6 +15,10 @@ namespace DynamicWin.UI.UIElements
         public float[] secondOrderValuesContract = [3f, 0.9f, 0.1f];
 
         public bool hidden = false;
+
+        // Set by the active menu while playback events should hold the
+        // island open, even when the cursor is not hovering it.
+        public bool autoExpanded = false;
         
         public Vec2 currSize;
 
@@ -43,9 +47,11 @@ namespace DynamicWin.UI.UIElements
         {
             base.Update(deltaTime);
 
+            bool expanded = IsHovering || autoExpanded;
+
             if (!hidden)
             {
-                if (IsHovering)
+                if (expanded)
                 {
                     scaleSecondOrder.SetValues(secondOrderValuesExpand[0], secondOrderValuesExpand[1], secondOrderValuesExpand[2]);
                     currSize = MenuManager.Instance.ActiveMenu.IslandSizeBig();
@@ -73,8 +79,8 @@ namespace DynamicWin.UI.UIElements
 
             MainForm.Instance.Opacity = hidden ? 0.85f : 1f;
 
-            dropShadowStrength = Mathf.Lerp(dropShadowStrength, IsHovering ? 0.75f : 0.25f, 10f * deltaTime);
-            dropShadowSize = Mathf.Lerp(dropShadowSize, IsHovering ? 35f : 7.5f, 10f * deltaTime);
+            dropShadowStrength = Mathf.Lerp(dropShadowStrength, expanded ? 0.75f : 0.25f, 10f * deltaTime);
+            dropShadowSize = Mathf.Lerp(dropShadowSize, expanded ? 35f : 7.5f, 10f * deltaTime);
 
             borderCol = Col.Lerp(borderCol, MenuManager.Instance.ActiveMenu.IslandBorderColor(), 10f  * deltaTime);
         }

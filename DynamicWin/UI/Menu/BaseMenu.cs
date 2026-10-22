@@ -29,6 +29,8 @@ namespace DynamicWin.UI.Menu
 
         public virtual void Update() { }
 
+        public virtual void OnLoad() { }
+
         public virtual void OnDeload() { }
 
         public void Dispose()

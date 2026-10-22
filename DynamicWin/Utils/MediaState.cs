@@ -21,6 +21,7 @@ namespace DynamicWin.Utils
         private static bool isPlaying;
         private static bool isMediaOpen;
         private static bool mediaDismissed;
+        private static int attentionVersion;
         private static string trackKey = "";
         private static string title = "";
         private static string artist = "";
@@ -134,6 +135,13 @@ namespace DynamicWin.Utils
 
             return IsPlaying;
         }
+
+        /// <summary>
+        /// Bumped when the island should open on its own: playback starts
+        /// while no media session was open, or the track changes during
+        /// playback. Resume-after-pause does not bump it.
+        /// </summary>
+        public static int AttentionVersion { get { lock (stateLock) return attentionVersion; } }
 
         private static GlobalSystemMediaTransportControlsSession? GetTrackedSession()
         {
@@ -334,8 +342,11 @@ namespace DynamicWin.Utils
             bool active = hasSmtcSession ? (smtcPlaying || smtcChanging) : audioActive;
 
             bool becamePlaying = false;
+            bool attention = false;
             lock (stateLock)
             {
+                bool wasMediaOpen = isMediaOpen;
+
                 if (active)
                 {
                     positiveStreak++;
@@ -369,6 +380,12 @@ namespace DynamicWin.Utils
                     // back. Dismissing while playing stays dismissed because
                     // there is no positive transition.
                     mediaDismissed = false;
+
+                    // Only a playback that starts from a closed/idle media
+                    // state should open the island. Resuming a paused player
+                    // leaves wasMediaOpen true and stays collapsed.
+                    if (!wasMediaOpen && newArtKey != "")
+                        attention = true;
                 }
 
                 if (newArtKey != "")
@@ -384,6 +401,11 @@ namespace DynamicWin.Utils
                         // A genuinely new track should reappear even if the
                         // previous one was dismissed.
                         mediaDismissed = false;
+
+                        // Track changes while playing should open the island;
+                        // skipping while paused does not.
+                        if (isPlaying && newArtKey != "")
+                            attention = true;
 
                         // New or unknown track: drop stale art so the UI stops
                         // showing the previous cover. The palette follows the art.
@@ -426,6 +448,9 @@ namespace DynamicWin.Utils
 
                 if (!isMediaOpen)
                     mediaDismissed = false;
+
+                if (attention)
+                    attentionVersion++;
             }
 
             // Fetch the cover right away on a track change, then re-check
