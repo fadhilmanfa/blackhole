@@ -40,6 +40,30 @@ namespace DynamicWin.Main
         const int GWL_EXSTYLE = -20;
         const int WS_EX_TOOLWINDOW = 0x00000080;
         const int WS_EX_APPWINDOW = 0x00040000;
+        const int WS_EX_TOPMOST = 0x00000008;
+
+        static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        const uint SWP_NOSIZE = 0x0001;
+        const uint SWP_NOMOVE = 0x0002;
+        const uint SWP_NOACTIVATE = 0x0010;
+
+        // Both overlay windows are owned by a hidden WPF window. Without
+        // SWP_NOOWNERZORDER Windows also moves that owner, and the topmost
+        // change silently does not stick.
+        const uint SWP_NOOWNERZORDER = 0x0200;
+        const int VK_LBUTTON = 0x01;
+
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        static extern short GetAsyncKeyState(int vKey);
+
+        bool draggingWindow;
+        long dragStartTick;
+        long lastTopmostCheck;
 
         public MainForm()
         {
@@ -77,10 +101,14 @@ namespace DynamicWin.Main
 
                 // Keep the main overlay above the strip so the island
                 // paints over the blurred bar.
-                this.Topmost = false;
-                this.Topmost = true;
+                ApplyNativeTopmost(true);
 
                 TopAppBar.Register(this, currentScreen ?? Forms.Screen.PrimaryScreen!, StripReservePx());
+
+                // Let dragged windows (and the Win11 snap-layout flyout, which
+                // lives at the very top edge) render above the strip.
+                WindowDragWatcher.DragStateChanged += SetDragOverlay;
+                WindowDragWatcher.Start();
             };
 
             SetMonitor(Settings.ScreenIndex);
@@ -172,14 +200,82 @@ namespace DynamicWin.Main
 
         protected override void OnClosed(EventArgs e)
         {
+            WindowDragWatcher.DragStateChanged -= SetDragOverlay;
+            WindowDragWatcher.Stop();
+
             TopAppBar.Unregister();
             try { stripWindow?.Close(); } catch { }
             stripWindow = null;
             base.OnClosed(e);
         }
 
+        /// <summary>
+        /// While a shell window move/size is running the overlay leaves the
+        /// topmost band, so the dragged window and the snap-layout flyout are
+        /// not hidden behind the strip. Restoring re-asserts the overlay
+        /// above the strip afterwards.
+        /// </summary>
+        void SetDragOverlay(bool dragging)
+        {
+            try
+            {
+                draggingWindow = dragging;
+                dragStartTick = Environment.TickCount64;
+
+                ApplyNativeTopmost(!dragging);
+            }
+            catch { }
+        }
+
+        void ApplyNativeTopmost(bool topmost)
+        {
+            const uint flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+            var after = topmost ? HWND_TOPMOST : HWND_NOTOPMOST;
+
+            stripWindow?.SetTopmost(topmost);
+
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero)
+                SetWindowPos(hwnd, after, 0, 0, 0, 0, flags);
+        }
+
+        bool IsOverlayTopmost()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return true;
+            return (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        }
+
+        /// <summary>
+        /// Safety net: Windows 11 does not always deliver MOVESIZEEND (and WPF
+        /// may silently clear topmost). Re-asserts the overlay whenever it is
+        /// not dragging anymore, and ends a stale drag once the button is up.
+        /// </summary>
+        void MaintainTopmost()
+        {
+            long now = Environment.TickCount64;
+            if (now - lastTopmostCheck < 500) return;
+            lastTopmostCheck = now;
+
+            if (draggingWindow)
+            {
+                bool buttonUp = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0;
+                bool stale = now - dragStartTick > 20000;
+
+                if ((buttonUp || stale) && now - dragStartTick > 400)
+                    SetDragOverlay(false);
+
+                return;
+            }
+
+            if (!IsOverlayTopmost())
+                ApplyNativeTopmost(true);
+        }
+
         private void OnRendering(object? sender, EventArgs e)
         {
+            MaintainTopmost();
+
             var currentTime = DateTime.Now;
             if (currentTime - _lastRenderTime >= _targetElapsedTime)
             {

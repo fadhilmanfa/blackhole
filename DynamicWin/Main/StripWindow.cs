@@ -70,6 +70,17 @@ namespace DynamicWin.Main
         [DllImport("user32.dll")]
         static extern int SetWindowLong(IntPtr window, int idx, int val);
 
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int X, int Y, int cx, int cy, uint uFlags);
+
+        static readonly IntPtr HWND_TOPMOST_NATIVE = new IntPtr(-1);
+        static readonly IntPtr HWND_NOTOPMOST_NATIVE = new IntPtr(-2);
+        const uint SWP_NOSIZE_NATIVE = 0x0001;
+        const uint SWP_NOMOVE_NATIVE = 0x0002;
+        const uint SWP_NOACTIVATE_NATIVE = 0x0010;
+        const uint SWP_NOOWNERZORDER_NATIVE = 0x0200;
+
         const int GWL_EXSTYLE = -20;
         const int WS_EX_TRANSPARENT = 0x00000020;
         const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -166,6 +177,19 @@ namespace DynamicWin.Main
 
             CompositionTarget.Rendering += OnCompositionFrame;
             Closed += (_, _) => CompositionTarget.Rendering -= OnCompositionFrame;
+        }
+
+        public void SetTopmost(bool topmost)
+        {
+            // Native only: keep the WPF Topmost property untouched so the
+            // framework does not re-apply it and fight the drag handling.
+            var hwnd = IntPtr.Zero;
+            try { hwnd = new WindowInteropHelper(this).Handle; } catch { }
+            if (hwnd == IntPtr.Zero) return;
+
+            SetWindowPos(hwnd, topmost ? HWND_TOPMOST_NATIVE : HWND_NOTOPMOST_NATIVE,
+                0, 0, 0, 0, SWP_NOMOVE_NATIVE | SWP_NOSIZE_NATIVE
+                    | SWP_NOACTIVATE_NATIVE | SWP_NOOWNERZORDER_NATIVE);
         }
 
         public void MoveTo(Forms.Screen screen, double heightDip)
