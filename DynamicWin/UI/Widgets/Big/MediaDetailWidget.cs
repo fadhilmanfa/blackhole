@@ -1,3 +1,4 @@
+using DynamicWin.Main;
 using DynamicWin.Resources;
 using DynamicWin.UI.UIElements;
 using DynamicWin.Utils;
@@ -43,6 +44,10 @@ namespace DynamicWin.UI.Widgets.Big
         bool? iconShowsPlaying;
         long iconOverrideUntil;
         const int IconOverrideMs = 2500;
+
+        // A click on the card itself brings the source player forward, but
+        // only when the press did not start on a transport button.
+        bool suppressOpen;
 
         public MediaDetailWidget(UIObject? parent, Vec2 position, UIAlignment alignment = UIAlignment.TopCenter) : base(parent, position, alignment)
         {
@@ -182,6 +187,40 @@ namespace DynamicWin.UI.Widgets.Big
         void DismissMedia()
         {
             MediaState.DismissCurrentMedia();
+        }
+
+        public override void OnMouseDown()
+        {
+            base.OnMouseDown();
+            suppressOpen = IsOverControl();
+        }
+
+        public override void OnMouseUp()
+        {
+            base.OnMouseUp();
+
+            bool overControl = IsOverControl();
+            bool suppress = suppressOpen;
+            suppressOpen = false;
+
+            if (suppress || overControl) return;
+
+            MediaSourceLauncher.Activate();
+        }
+
+        /// <summary>
+        /// True when the cursor is over one of the transport buttons. The
+        /// card opens the player, while those buttons keep their own click.
+        /// </summary>
+        bool IsOverControl()
+        {
+            var cursor = RendererMain.CursorPosition;
+            var point = SKRect.Create(cursor.X, cursor.Y, 1, 1);
+
+            return prevBtn.GetInteractionRect().Contains(point) ||
+                   playBtn.GetInteractionRect().Contains(point) ||
+                   nextBtn.GetInteractionRect().Contains(point) ||
+                   dismissBtn.GetInteractionRect().Contains(point);
         }
 
         void TogglePlayPause()

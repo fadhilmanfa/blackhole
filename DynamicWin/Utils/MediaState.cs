@@ -201,6 +201,13 @@ namespace DynamicWin.Utils
         public static SKBitmap? AlbumArt { get { lock (stateLock) return albumArt; } }
 
         /// <summary>
+        /// AppUserModelId of the tracked player. The now-playing card uses
+        /// this to bring the source application back to the foreground.
+        /// Empty when playback comes from raw audio with no SMTC session.
+        /// </summary>
+        public static string SourceAppId { get { lock (stateLock) return trackedAppId; } }
+
+        /// <summary>
         /// Bumped every time the stored album art bitmap is replaced.
         /// UI caches by this version so late-arriving fetches are picked up.
         /// </summary>
