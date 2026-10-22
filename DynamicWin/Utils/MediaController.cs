@@ -1,32 +1,31 @@
-﻿using System;
-using System.Runtime.InteropServices;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-
-namespace DynamicWin.Utils
+﻿namespace DynamicWin.Utils
 {
+    /// <summary>
+    /// Sends transport commands to the session tracked by <see cref="MediaState"/>.
+    /// Media keys are intentionally not used: Windows broadcasts them to
+    /// whichever session it considers current, which may be another app that
+    /// only made a sound (Instagram, CapCut, a browser tab).
+    /// </summary>
     public class MediaController
     {
-        [DllImport("user32.dll")]
-        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
-
-        private const byte VK_MEDIA_PLAY_PAUSE = 0xB3;
-        private const byte VK_MEDIA_NEXT_TRACK = 0xB0;
-        private const byte VK_MEDIA_PREV_TRACK = 0xB1;
-
         public void PlayPause()
         {
-            keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0);
+            MediaState.SetPlaying(!MediaState.GetLivePlaying());
+        }
+
+        public void SetPlaying(bool playing)
+        {
+            MediaState.SetPlaying(playing);
         }
 
         public void Next()
         {
-            keybd_event(VK_MEDIA_NEXT_TRACK, 0, 0, 0);
+            MediaState.SkipNext();
         }
 
         public void Previous()
         {
-            keybd_event(VK_MEDIA_PREV_TRACK, 0, 0, 0);
+            MediaState.SkipPrevious();
         }
     }
 }

@@ -45,6 +45,19 @@ namespace DynamicWin.Utils
         private static int positiveStreak;
         private static int negativeStreak;
 
+        // Sticky session tracking. Windows' "current session" follows
+        // whichever app last changed playback, so opening Instagram/CapCut
+        // can steal the island from the music the user is listening to.
+        // Keep the chosen session until it closes or stops; paused media is
+        // pinned by design in this app.
+        private static GlobalSystemMediaTransportControlsSession? trackedSession;
+        private static string trackedAppId = "";
+        private static string trackedTrackKey = "";
+
+        // Serializes transport commands so a fast double click cannot run
+        // play and pause out of order.
+        private static readonly SemaphoreSlim transportLock = new SemaphoreSlim(1, 1);
+
         private static float audioLevel;
         private static WasapiLoopbackCapture? capture;
 
@@ -74,6 +87,104 @@ namespace DynamicWin.Utils
             {
                 if (!isMediaOpen) return;
                 mediaDismissed = true;
+            }
+        }
+
+        /// <summary>
+        /// Sends play/pause directly to the tracked session. Media keys are
+        /// deliberately avoided: Windows broadcasts them to whichever session
+        /// it considers current, which may be another app that just made a
+        /// sound (Instagram, CapCut, a browser tab).
+        /// </summary>
+        public static void SetPlaying(bool playing)
+        {
+            var session = GetTrackedSession();
+            if (session == null) return;
+            _ = SetPlayingAsync(session, playing);
+        }
+
+        public static void SkipNext()
+        {
+            var session = GetTrackedSession();
+            if (session == null) return;
+            _ = SkipAsync(session, next: true);
+        }
+
+        public static void SkipPrevious()
+        {
+            var session = GetTrackedSession();
+            if (session == null) return;
+            _ = SkipAsync(session, next: false);
+        }
+
+        /// <summary>
+        /// Fresh play/pause state straight from the tracked session. The
+        /// debounced <see cref="IsPlaying"/> can lag briefly, and a click must
+        /// target the real state instead of toggling twice.
+        /// </summary>
+        public static bool GetLivePlaying()
+        {
+            var session = GetTrackedSession();
+            var status = GetPlaybackStatus(session);
+
+            if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                return true;
+            if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                return false;
+
+            return IsPlaying;
+        }
+
+        private static GlobalSystemMediaTransportControlsSession? GetTrackedSession()
+        {
+            lock (stateLock) return trackedSession;
+        }
+
+        private static async Task SetPlayingAsync(
+            GlobalSystemMediaTransportControlsSession session, bool playing)
+        {
+            await transportLock.WaitAsync();
+            try
+            {
+                var status = GetPlaybackStatus(session);
+
+                // Already in the requested state (the UI may be one poll
+                // behind): don't toggle it the wrong way.
+                if (playing &&
+                    status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    return;
+                if (!playing &&
+                    status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                    return;
+
+                if (playing)
+                    await session.TryPlayAsync();
+                else
+                    await session.TryPauseAsync();
+            }
+            catch (Exception e)
+            {
+                System.Diagnostics.Debug.WriteLine("Media command failed: " + e.Message);
+            }
+            finally
+            {
+                transportLock.Release();
+            }
+        }
+
+        private static async Task SkipAsync(
+            GlobalSystemMediaTransportControlsSession session, bool next)
+        {
+            try
+            {
+                if (next)
+                    await session.TrySkipNextAsync();
+                else
+                    await session.TrySkipPreviousAsync();
+            }
+            catch (Exception e)
+            {
+                System.Diagnostics.Debug.WriteLine("Media skip failed: " + e.Message);
             }
         }
 
@@ -170,11 +281,11 @@ namespace DynamicWin.Utils
             try
             {
                 var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                var session = PickSession(manager);
+                var session = await ResolveSessionAsync(manager, manager.GetSessions());
+
                 if (session != null)
                 {
-                    sessionExists = true;
-                    var status = session.GetPlaybackInfo()?.PlaybackStatus;
+                    var status = GetPlaybackStatus(session);
                     smtcPlaying = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                     smtcPaused = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
                     smtcChanging = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Changing;
@@ -183,10 +294,11 @@ namespace DynamicWin.Utils
                     // open. A stopped/closed session should not keep stale
                     // music on the island forever.
                     hasSmtcSession = smtcPlaying || smtcPaused || smtcChanging;
+                    sessionExists = hasSmtcSession;
 
                     if (smtcPlaying || smtcPaused)
                     {
-                        mediaProps = await session.TryGetMediaPropertiesAsync();
+                        mediaProps = await TryGetMediaPropertiesAsync(session);
                         if (mediaProps != null)
                         {
                             newTitle = mediaProps.Title ?? "";
@@ -198,7 +310,13 @@ namespace DynamicWin.Utils
             }
             catch
             {
+                // Transient SMTC failure: keep the tracked session so the
+                // next poll can recover, but treat this snapshot as unknown.
                 smtcPlaying = false;
+                smtcPaused = false;
+                smtcChanging = false;
+                hasSmtcSession = false;
+                sessionExists = false;
                 mediaProps = null;
             }
 
@@ -209,7 +327,11 @@ namespace DynamicWin.Utils
                 audioLevel *= 0.5f; // decay, silence fades the level out
             }
 
-            bool active = smtcPlaying || audioActive;
+            // A tracked SMTC session is authoritative. Loopback audio is only
+            // a fallback for games/apps with no media session; otherwise any
+            // notification or video in another app would make a paused player
+            // look like it is still playing.
+            bool active = hasSmtcSession ? (smtcPlaying || smtcChanging) : audioActive;
 
             bool becamePlaying = false;
             lock (stateLock)
@@ -218,7 +340,11 @@ namespace DynamicWin.Utils
                 {
                     positiveStreak++;
                     negativeStreak = 0;
-                    if (!isPlaying && positiveStreak >= PositiveNeeded)
+
+                    // An explicit SMTC state is reliable; only the audio-level
+                    // fallback needs the longer confirmation streak.
+                    int needed = (smtcPlaying || smtcChanging) ? 1 : PositiveNeeded;
+                    if (!isPlaying && positiveStreak >= needed)
                     {
                         isPlaying = true;
                         becamePlaying = true;
@@ -228,7 +354,9 @@ namespace DynamicWin.Utils
                 {
                     negativeStreak++;
                     positiveStreak = 0;
-                    if (isPlaying && negativeStreak >= NegativeNeeded)
+
+                    int needed = smtcPaused ? 1 : NegativeNeeded;
+                    if (isPlaying && negativeStreak >= needed)
                         isPlaying = false;
                 }
 
@@ -247,6 +375,7 @@ namespace DynamicWin.Utils
                 {
                     title = newTitle;
                     artist = newArtist;
+                    trackedTrackKey = newArtKey;
 
                     if (trackKey != newArtKey)
                     {
@@ -271,13 +400,28 @@ namespace DynamicWin.Utils
                         }
                     }
                 }
-                else if (isPlaying && !sessionExists)
+                else if (!sessionExists)
                 {
-                    // Audio-only playback (game, app without SMTC): don't
-                    // keep showing metadata from a player that already left.
+                    // No usable session: audio-only playback (game, app
+                    // without SMTC) or the player closed. Never keep showing
+                    // metadata/cover from a source that already left.
                     title = "";
                     artist = "";
                     trackKey = "";
+                    trackedTrackKey = "";
+
+                    if (albumArt != null)
+                    {
+                        albumArt.Dispose();
+                        albumArt = null;
+                        artKey = "";
+                        artHash = "";
+                        artVersion++;
+
+                        accentPrimary = null;
+                        accentSecondary = null;
+                        accentVersion++;
+                    }
                 }
 
                 if (!isMediaOpen)
@@ -302,50 +446,179 @@ namespace DynamicWin.Utils
         }
 
         /// <summary>
-        /// Picks the session that is actually playing. Browsers can expose
-        /// several sessions (one per tab or window) and GetCurrentSession()
-        /// is not guaranteed to be the one producing audio.
+        /// Resolves which session the island should follow.
+        ///
+        /// The chosen session is sticky: opening Instagram, CapCut, or any
+        /// other noisy app must not steal the now-playing card while the
+        /// tracked player is playing or paused. A new session is only picked
+        /// after the tracked one closes or stops.
         /// </summary>
-        private static GlobalSystemMediaTransportControlsSession? PickSession(
-            GlobalSystemMediaTransportControlsSessionManager manager)
+        private static async Task<GlobalSystemMediaTransportControlsSession?> ResolveSessionAsync(
+            GlobalSystemMediaTransportControlsSessionManager manager,
+            IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions)
         {
-            try
+            var tracked = await FindTrackedSessionAsync(sessions);
+            if (tracked != null && IsUsableStatus(GetPlaybackStatus(tracked)))
+                return tracked;
+
+            // The tracked session closed or stopped. Pick a fresh one.
+            SetTrackedSession(null);
+
+            var next = ChooseSession(manager, sessions);
+            if (next != null)
+                SetTrackedSession(next);
+
+            return next;
+        }
+
+        /// <summary>
+        /// Finds the sticky session in the current session list. WinRT may
+        /// hand out fresh wrappers between polls, so fall back to the app id;
+        /// browsers expose several tabs under one app, hence the track key
+        /// check when that is ambiguous.
+        /// </summary>
+        private static async Task<GlobalSystemMediaTransportControlsSession?> FindTrackedSessionAsync(
+            IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions)
+        {
+            GlobalSystemMediaTransportControlsSession? tracked;
+            string appId;
+            string key;
+            lock (stateLock)
             {
-                var sessions = manager.GetSessions();
-                var current = manager.GetCurrentSession();
-
-                // The session Windows considers current is usually the right
-                // one; trust it while it is playing.
-                if (current != null &&
-                    current.GetPlaybackInfo()?.PlaybackStatus ==
-                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                    return current;
-
-                // Otherwise look for another session that is playing. This
-                // covers browsers exposing several tab sessions where the
-                // OS-current one sits paused while another tab plays.
-                foreach (var session in sessions)
-                {
-                    if (session.GetPlaybackInfo()?.PlaybackStatus ==
-                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                        return session;
-                }
-
-                // No playing session: prefer a paused one so its now-playing
-                // state stays pinned until the user closes it.
-                foreach (var session in sessions)
-                {
-                    if (session.GetPlaybackInfo()?.PlaybackStatus ==
-                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
-                        return session;
-                }
-
-                if (current != null) return current;
-                if (sessions.Count > 0) return sessions[0];
+                tracked = trackedSession;
+                appId = trackedAppId;
+                key = trackedTrackKey;
             }
-            catch { }
 
-            return manager.GetCurrentSession();
+            if (tracked == null) return null;
+
+            // Prefer the exact same WinRT session object.
+            foreach (var session in sessions)
+            {
+                if (ReferenceEquals(session, tracked))
+                    return session;
+            }
+
+            if (string.IsNullOrEmpty(appId)) return null;
+
+            var sameApp = new List<GlobalSystemMediaTransportControlsSession>();
+            foreach (var session in sessions)
+            {
+                if (GetAppId(session) == appId)
+                    sameApp.Add(session);
+            }
+
+            if (sameApp.Count == 0) return null;
+            if (sameApp.Count == 1)
+                return IsUsableStatus(GetPlaybackStatus(sameApp[0])) ? sameApp[0] : null;
+
+            // One app, multiple sessions (browser tabs): match the track
+            // that was last shown before accepting any of them.
+            if (key != "")
+            {
+                foreach (var session in sameApp)
+                {
+                    var props = await TryGetMediaPropertiesAsync(session);
+                    if (props != null &&
+                        BuildKey(props.Title ?? "", props.Artist ?? "") == key)
+                        return session;
+                }
+            }
+
+            // Track key was not found (the tab may have navigated): prefer
+            // the same app's playing session over an arbitrary paused tab.
+            GlobalSystemMediaTransportControlsSession? firstUsable = null;
+            foreach (var session in sameApp)
+            {
+                var status = GetPlaybackStatus(session);
+                if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    return session;
+                if (firstUsable == null && IsUsableStatus(status))
+                    firstUsable = session;
+            }
+
+            return firstUsable;
+        }
+
+        /// <summary>
+        /// First-run selection only. Windows' current session is preferred
+        /// while it is playing; otherwise the first playing session wins,
+        /// then a paused/opened one.
+        /// </summary>
+        private static GlobalSystemMediaTransportControlsSession? ChooseSession(
+            GlobalSystemMediaTransportControlsSessionManager manager,
+            IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions)
+        {
+            GlobalSystemMediaTransportControlsSession? current = null;
+            try { current = manager.GetCurrentSession(); } catch { }
+
+            if (IsSessionPlaying(current)) return current;
+
+            foreach (var session in sessions)
+            {
+                if (IsSessionPlaying(session)) return session;
+            }
+
+            if (IsUsableStatus(GetPlaybackStatus(current))) return current;
+
+            foreach (var session in sessions)
+            {
+                if (IsUsableStatus(GetPlaybackStatus(session)))
+                    return session;
+            }
+
+            return null;
+        }
+
+        private static bool IsSessionPlaying(
+            GlobalSystemMediaTransportControlsSession? session)
+        {
+            return GetPlaybackStatus(session) ==
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+        }
+
+        private static bool IsUsableStatus(
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus? status)
+        {
+            return status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
+                   status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused ||
+                   status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Changing;
+        }
+
+        private static GlobalSystemMediaTransportControlsSessionPlaybackStatus? GetPlaybackStatus(
+            GlobalSystemMediaTransportControlsSession? session)
+        {
+            if (session == null) return null;
+            try { return session.GetPlaybackInfo()?.PlaybackStatus; }
+            catch { return null; }
+        }
+
+        private static string GetAppId(GlobalSystemMediaTransportControlsSession session)
+        {
+            try { return session.SourceAppUserModelId ?? ""; }
+            catch { return ""; }
+        }
+
+        private static async Task<GlobalSystemMediaTransportControlsSessionMediaProperties?>
+            TryGetMediaPropertiesAsync(GlobalSystemMediaTransportControlsSession session)
+        {
+            try { return await session.TryGetMediaPropertiesAsync(); }
+            catch { return null; }
+        }
+
+        private static void SetTrackedSession(
+            GlobalSystemMediaTransportControlsSession? session)
+        {
+            // Read the app id outside the lock: WinRT calls must never block
+            // UI threads that read IsPlaying/Title.
+            string appId = session != null ? GetAppId(session) : "";
+
+            lock (stateLock)
+            {
+                trackedSession = session;
+                trackedAppId = appId;
+                trackedTrackKey = "";
+            }
         }
 
         /// <summary>

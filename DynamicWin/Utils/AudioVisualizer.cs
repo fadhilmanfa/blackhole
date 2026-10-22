@@ -22,6 +22,11 @@ namespace DynamicWin.Utils
 
         public float divisor = 1f;
 
+        // Lets the now-playing UI mute the bars while the tracked player is
+        // paused, so sound from another app (Instagram/CapCut) doesn't make
+        // the music equalizer look like it is still playing.
+        public float AudioGain = 1f;
+
         bool avAmpsMode = false;
 
         public AudioVisualizer(UIObject? parent, Vec2 position, Vec2 size, UIAlignment alignment = UIAlignment.TopCenter, int length = 16, int averageAmpsSize = 0, Col Primary = null, Col Secondary = null) : base(parent, position, size, alignment)
@@ -86,10 +91,11 @@ namespace DynamicWin.Utils
 
             if (fftValues == null || fftValues.Length == 0) return;
 
+            float gain = Math.Clamp(AudioGain, 0f, 1f);
             for (int i = 0; i < fftValues.Length; i++)
             {
                 float amplitude = (float)Math.Sqrt(Math.Abs(fftValues[i]));
-                amplitude = Math.Clamp(amplitude, 0, 1);
+                amplitude = Math.Clamp(amplitude * gain, 0, 1);
 
                 if (float.IsNaN(amplitude) || float.IsInfinity(amplitude)) amplitude = 0f;
 

@@ -186,11 +186,16 @@ namespace DynamicWin.UI.Widgets.Big
 
         void TogglePlayPause()
         {
-            bool target = !(iconShowsPlaying ?? MediaState.IsPlaying);
+            // Target the live session state, not the debounced IsPlaying:
+            // pausing from the player itself must not make the island's
+            // first click toggle in the wrong direction.
+            bool current = iconShowsPlaying ?? MediaState.GetLivePlaying();
+            bool target = !current;
+
             iconShowsPlaying = target;
             iconOverrideUntil = Environment.TickCount64 + IconOverrideMs;
             UpdatePlayIcon();
-            controller.PlayPause();
+            controller.SetPlaying(target);
         }
 
         void UpdatePlayIcon()

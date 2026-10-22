@@ -39,6 +39,11 @@ namespace DynamicWin.UI.Widgets.Small
         {
             base.Update(deltaTime);
 
+            // Keep the bars tied to the tracked player. Loopback also hears
+            // Instagram/CapCut, so without this the paused music island would
+            // still dance whenever another app makes noise.
+            audioVisualizer.AudioGain = MediaState.IsPlaying ? 1f : 0f;
+
             int version = MediaState.AccentVersion;
             if (version != lastAccentVersion)
             {
