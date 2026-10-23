@@ -22,6 +22,14 @@ namespace DynamicWin.UI.UIElements
         
         public Vec2 currSize;
 
+        Vec2 previousSize = Vec2.zero;
+
+        /// <summary>
+        /// True when the island is at its target size and the size spring has
+        /// stopped moving. Used to sequence activity hand-offs.
+        /// </summary>
+        public bool SizeSettled { get; private set; }
+
         float dropShadowStrength = 0f;
         float dropShadowSize = 0f;
 
@@ -30,6 +38,7 @@ namespace DynamicWin.UI.UIElements
         public IslandObject() : base(null, Vec2.zero, new Vec2(250, 50), UIAlignment.TopCenter)
         {
             currSize = Size;
+            previousSize = Size;
 
             Anchor = new Vec2(0.5f, 0f);
 
@@ -48,6 +57,7 @@ namespace DynamicWin.UI.UIElements
             base.Update(deltaTime);
 
             bool expanded = IsHovering || autoExpanded;
+            previousSize = Size;
 
             if (!hidden)
             {
@@ -65,6 +75,9 @@ namespace DynamicWin.UI.UIElements
                 Size = scaleSecondOrder.Update(deltaTime, currSize);
                 //Size = Vec2.lerp(Size, currSize, deltaTime * 15f);
 
+                SizeSettled = Vec2.Distance(Size, currSize) < 0.75f &&
+                    Vec2.Distance(Size, previousSize) < 0.05f;
+
                 LocalPosition.Y = Mathf.Lerp(LocalPosition.Y, topOffset, 15f * deltaTime);
             }
             else
@@ -73,6 +86,8 @@ namespace DynamicWin.UI.UIElements
 
                 Size = scaleSecondOrder.Update(deltaTime, new Vec2(500, 15));
                 //Size = Vec2.lerp(Size, new Vec2(500, 10), deltaTime * 15f);
+
+                SizeSettled = false;
 
                 LocalPosition.Y = Mathf.Lerp(LocalPosition.Y, -Size.Y / 1.5f, 25f * deltaTime);
             }

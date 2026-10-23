@@ -49,6 +49,10 @@ namespace DynamicWin.UI
         public float roundRadius = 0f;
         public bool maskInToIsland = true;
 
+        // Drawn before the island silhouette, so the object can slide behind
+        // it. Used by the returning activity bubble.
+        public bool drawBehindIsland = false;
+
         private List<UIObject> localObjects = new List<UIObject>();
         public List<UIObject> LocalObjects { get => localObjects; }
 

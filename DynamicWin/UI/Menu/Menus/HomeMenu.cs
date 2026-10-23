@@ -16,7 +16,7 @@ namespace DynamicWin.UI.Menu.Menus
     /// Expanded: iOS-style calendar when idle, now-playing card
     /// when audio is playing, file tray always at the bottom.
     /// </summary>
-    public class HomeMenu : BaseMenu
+    public partial class HomeMenu : BaseMenu
     {
         const float TrayHeight = 140f;
         const float CardBottomMargin = 8f;
@@ -90,17 +90,34 @@ namespace DynamicWin.UI.Menu.Menus
 
         public override Vec2 IslandSize()
         {
-            // Idle ("diam") and music have their own declared pill sizes.
-            return MediaState.IsMediaVisible ? MusicIslandSize : IdleIslandSize;
+            // Idle ("diam"), music and the volume activity each declare their
+            // own pill. The active activity decides which one is on screen.
+            if (IsPrimarySilent) return volumeView.Size;
+
+            // Reset the pill to the default compact shape before the cover
+            // starts moving behind it.
+            if (IsCompactReturning) return IdleIslandSize;
+
+            return IsPrimaryMedia ? MusicIslandSize : IdleIslandSize;
         }
 
         public override Vec2 IslandSizeBig()
         {
-            var baseSize = MediaState.IsMediaVisible ? MusicExpandedSize : IdleExpandedSize;
+            // The volume pill is compact-only: hovering it hands control back
+            // to the previous activity before the island has a chance to grow.
+            if (IsPrimarySilent) return volumeView.Size;
+            if (IsCompactReturning) return IdleIslandSize;
+
+            var baseSize = IsPrimaryMedia ? MusicExpandedSize : IdleExpandedSize;
 
             // The tray grows the island downwards only while it holds files;
             // the gap keeps the card from touching the tray icons.
             return new Vec2(baseSize.X, baseSize.Y + CurrentTrayHeight + CurrentCardTrayGap);
+        }
+
+        public override Col IslandBorderColor()
+        {
+            return IsPrimarySilent ? volumeView.BorderColor : Col.Transparent;
         }
 
         public override List<UIObject> InitializeMenu(IslandObject island)
@@ -146,6 +163,8 @@ namespace DynamicWin.UI.Menu.Menus
 
             objects.Add(tray);
 
+            InitializeActivities(island, objects);
+
             return objects;
         }
 
@@ -157,10 +176,27 @@ namespace DynamicWin.UI.Menu.Menus
                 tray.RefreshFiles();
             wasHovering = hover;
 
+            long now = Environment.TickCount64;
+
+            // Keep the activity stack in sync with global media state before
+            // anything reads the active primary.
+            SyncMediaActivity();
+            TickActivities(now);
+            UpdateCompactReturn(now);
+
+            // The volume pill used to be a menu; hovering the island closed
+            // it. Keep that behaviour, but let the activity stack decide what
+            // takes over next.
+            if (IsPrimarySilent && volumeView.ShouldYieldToHover())
+                DismissSilent();
+
+            bool primaryMedia = IsPrimaryMedia;
+            bool primarySilent = IsPrimarySilent;
+            bool returnPending = IsCompactReturning;
+
             // Read the event counter before the media snapshot: if the poll
             // lands between the two reads, the snapshot is fresh and the
             // next frame still sees the new version instead of dropping it.
-            long now = Environment.TickCount64;
             int attentionVersion = MediaState.AttentionVersion;
             bool mediaVisible = MediaState.IsMediaVisible;
 
@@ -170,19 +206,25 @@ namespace DynamicWin.UI.Menu.Menus
 
                 // Hold the island open only for events that happen while
                 // the home menu is actually on screen.
-                if (mediaVisible && !RendererMain.Instance.MainIsland.hidden)
+                if (primaryMedia && !RendererMain.Instance.MainIsland.hidden)
                     autoExpandUntil = now + AutoExpandMs;
             }
 
-            if (!mediaVisible)
+            if (!primaryMedia)
                 autoExpandUntil = 0;
 
-            bool autoExpanded = mediaVisible && now < autoExpandUntil;
-            bool expanded = hover || autoExpanded;
+            bool autoExpanded = primaryMedia && !returnPending && now < autoExpandUntil;
+            // The silence/volume activity is compact-only. When it owns the
+            // island, hover is used as a hand-off gesture instead of growth.
+            // During a return, hold the island compact until the bubble has
+            // finished sliding behind it.
+            bool expanded = returnPending
+                ? false
+                : primarySilent ? false : (hover || autoExpanded);
             RendererMain.Instance.MainIsland.autoExpanded = autoExpanded;
 
             float dt = RendererMain.Instance.DeltaTime;
-            bool showMusic = !expanded && mediaVisible;
+            bool showMusic = !expanded && primaryMedia && !returnPending;
 
             // Shared 0..1 progress for the collapsed cover + EQ pair.
             musicContentAnim = Mathf.Lerp(musicContentAnim, showMusic ? 1f : 0f, MusicContentFadeSpeed * dt);
@@ -238,8 +280,13 @@ namespace DynamicWin.UI.Menu.Menus
                 }
             }
 
-            calendarCard.SetActive(expanded && !mediaVisible);
-            mediaCard.SetActive(expanded && mediaVisible);
+            // The volume view owns its own fade/jelly; it can be fading out
+            // while media is already primary again.
+            volumeView.Update(dt, primarySilent);
+            UpdateBubble(expanded);
+
+            calendarCard.SetActive(expanded && !primaryMedia);
+            mediaCard.SetActive(expanded && primaryMedia);
             tray.SetActive(expanded);
 
             float cardY = CurrentCardY;
@@ -256,6 +303,7 @@ namespace DynamicWin.UI.Menu.Menus
             // open, so returning home never pops the island on its own.
             lastAttentionVersion = MediaState.AttentionVersion;
             autoExpandUntil = 0;
+            ResetActivities();
             base.OnLoad();
         }
 
@@ -264,6 +312,7 @@ namespace DynamicWin.UI.Menu.Menus
             autoExpandUntil = 0;
             RendererMain.Instance.MainIsland.autoExpanded = false;
             wasHovering = false;
+            ClearActivities();
             base.OnDeload();
         }
     }

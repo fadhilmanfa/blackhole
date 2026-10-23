@@ -110,14 +110,10 @@ namespace DynamicWin.Main
 
             if ((key == Keys.VolumeDown || key == Keys.VolumeMute || key == Keys.VolumeUp) && PopupOptions.saveData.volumePopup)
             {
-                if (MenuManager.Instance.ActiveMenu is HomeMenu)
-                {
-                    MenuManager.OpenOverlayMenu(new VolumeAdjustMenu(), 100f);
-                }
-                else if (VolumeAdjustMenu.timerUntilClose != null)
-                {
-                    VolumeAdjustMenu.timerUntilClose = 0f;
-                }
+                // Volume/mute is an activity of the home island now, not a
+                // separate menu. The activity stack handles its lifetime.
+                if (MenuManager.Instance.ActiveMenu is HomeMenu homeMenu)
+                    homeMenu.NotifyVolumeKeys();
             }
         }
 
@@ -212,41 +208,34 @@ namespace DynamicWin.Main
 
             canvasWithoutClip = canvas.Save();
 
+            bool islandHidden = MainIsland.hidden;
+            bool hasContextMenu = false;
+
+            // Returning bubbles slide under the island, so they are painted
+            // before the island silhouette.
+            if (!islandHidden)
+            {
+                foreach (UIObject uiObject in objects)
+                {
+                    if (uiObject.drawBehindIsland)
+                        hasContextMenu |= DrawMenuObject(canvas, uiObject);
+                }
+            }
+
+            // Each menu object leaves the canvas in its own save slot; reset
+            // to the clean state before painting the island.
+            canvas.RestoreToCount(canvasWithoutClip);
+            canvasWithoutClip = canvas.Save();
+
             if (islandObject.maskInToIsland) Mask(canvas);
             islandObject.DrawCall(canvas);
 
-            if (MainIsland.hidden) return;
+            if (islandHidden) return;
 
-            bool hasContextMenu = false;
             foreach (UIObject uiObject in objects)
             {
-                canvas.RestoreToCount(canvasWithoutClip);
-                canvasWithoutClip = canvas.Save();
-
-                if (uiObject.IsHovering && uiObject.GetContextMenu() != null)
-                {
-                    hasContextMenu = true;
-                    ContextMenu = uiObject.GetContextMenu();
-                }
-
-                foreach (UIObject obj in uiObject.LocalObjects)
-                {
-                    if (obj.IsHovering && obj.GetContextMenu() != null)
-                    {
-                        hasContextMenu = true;
-                        ContextMenu = obj.GetContextMenu();
-                    }
-                }
-
-                if (uiObject.maskInToIsland)
-                {
-                    Mask(canvas);
-                }
-
-                canvas.Scale(scaleOffset.X, scaleOffset.Y, islandObject.Position.X + islandObject.Size.X / 2, islandObject.Position.Y + islandObject.Size.Y / 2);
-                canvas.Translate(renderOffset.X, renderOffset.Y);
-
-                uiObject.DrawCall(canvas);
+                if (!uiObject.drawBehindIsland)
+                    hasContextMenu |= DrawMenuObject(canvas, uiObject);
             }
 
             onDraw?.Invoke(canvas);
@@ -254,6 +243,42 @@ namespace DynamicWin.Main
             if (!hasContextMenu) ContextMenu = null;
 
             canvas.Flush();
+        }
+
+        private bool DrawMenuObject(SKCanvas canvas, UIObject uiObject)
+        {
+            canvas.RestoreToCount(canvasWithoutClip);
+            canvasWithoutClip = canvas.Save();
+
+            bool hasContextMenu = false;
+
+            if (uiObject.IsHovering && uiObject.GetContextMenu() != null)
+            {
+                hasContextMenu = true;
+                ContextMenu = uiObject.GetContextMenu();
+            }
+
+            foreach (UIObject obj in uiObject.LocalObjects)
+            {
+                if (obj.IsHovering && obj.GetContextMenu() != null)
+                {
+                    hasContextMenu = true;
+                    ContextMenu = obj.GetContextMenu();
+                }
+            }
+
+            if (uiObject.maskInToIsland)
+                Mask(canvas);
+
+            canvas.Scale(
+                scaleOffset.X,
+                scaleOffset.Y,
+                islandObject.Position.X + islandObject.Size.X / 2,
+                islandObject.Position.Y + islandObject.Size.Y / 2);
+            canvas.Translate(renderOffset.X, renderOffset.Y);
+
+            uiObject.DrawCall(canvas);
+            return hasContextMenu;
         }
 
         private void Mask(SKCanvas canvas)
